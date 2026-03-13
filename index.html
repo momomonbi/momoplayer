@@ -1,0 +1,1129 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#fef1f6">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.json">
+<title>ももプレイヤー</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Hannari&family=Zen+Maru+Gothic:wght@400;500;700&family=M+PLUS+Rounded+1c:wght@300;400;500;700&display=swap');
+
+/* ═══════ Theme Variables ═══════ */
+:root{
+  --c50:#fef1f6;--c100:#fde4ef;--c200:#fcc8df;--c300:#fbadcf;
+  --c400:#f472b6;--c500:#ec4899;--c600:#db2777;
+  --bg1:#fff0f6;--bg2:#fdf2f8;--bg3:#fce7f3;--bg4:#f0f9ff;
+  --orb-r:251;--orb-g:173;--orb-b:207;
+  --glass-bg:rgba(255,255,255,0.68);
+  --glass-border:rgba(255,255,255,0.5);
+  --glass-shadow:0 8px 32px rgba(236,72,153,0.10),0 2px 8px rgba(0,0,0,0.04);
+  --text-primary:#1e1b2e;--text-secondary:#7c7a8a;
+  --radius:20px;--radius-sm:14px;
+  --ease-spring:cubic-bezier(0.34,1.56,0.64,1);
+  --ease-smooth:cubic-bezier(0.4,0,0.2,1);
+  --ease-out:cubic-bezier(0,0,0.2,1);
+}
+
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+
+html,body{
+  width:100%;min-height:100vh;overflow-x:hidden;
+  font-family:'Hannari','Zen Maru Gothic','M PLUS Rounded 1c',sans-serif;
+  background:linear-gradient(140deg,var(--bg1) 0%,var(--bg2) 30%,var(--bg3) 60%,var(--bg4) 100%);
+  background-attachment:fixed;color:var(--text-primary);
+  transition:background .8s var(--ease-smooth);
+}
+
+/* Ambient orbs */
+body::before,body::after{
+  content:'';position:fixed;border-radius:50%;pointer-events:none;z-index:0;
+  transition:all 1.2s var(--ease-smooth);
+  filter:blur(80px);
+}
+body::before{
+  width:50vw;height:50vw;top:-10vw;right:-15vw;
+  background:rgba(var(--orb-r),var(--orb-g),var(--orb-b),0.20);
+}
+body::after{
+  width:40vw;height:40vw;bottom:10vh;left:-10vw;
+  background:rgba(var(--orb-r),var(--orb-g),var(--orb-b),0.12);
+}
+
+::-webkit-scrollbar{width:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--c200);border-radius:3px}
+
+/* ═══════ Glass ═══════ */
+.glass{
+  background:var(--glass-bg);
+  backdrop-filter:blur(24px) saturate(1.5);-webkit-backdrop-filter:blur(24px) saturate(1.5);
+  border:1px solid var(--glass-border);border-radius:var(--radius);box-shadow:var(--glass-shadow);
+  transition:box-shadow .4s var(--ease-smooth),border-color .4s var(--ease-smooth),background .4s var(--ease-smooth);
+}
+
+/* ═══════ Layout ═══════ */
+#app{position:relative;z-index:1;max-width:500px;margin:0 auto;padding:20px 14px 160px}
+
+/* ═══════ Stagger Load Animation ═══════ */
+@keyframes fadeSlideUp{
+  from{opacity:0;transform:translateY(24px)}
+  to{opacity:1;transform:translateY(0)}
+}
+.anim-in{animation:fadeSlideUp .6s var(--ease-out) both}
+
+/* ═══════ Header ═══════ */
+.header{
+  text-align:center;padding:36px 20px 28px;margin-bottom:20px;
+  animation:fadeSlideUp .7s var(--ease-out) both;
+}
+.header h1{
+  font-family:'Hannari',serif;font-size:1.9rem;font-weight:400;
+  background:linear-gradient(135deg,var(--c500),var(--c600));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  letter-spacing:.1em;
+  transition:all .6s var(--ease-smooth);
+}
+.header p{
+  font-size:.75rem;color:var(--text-secondary);margin-top:6px;
+  letter-spacing:.06em;opacity:.8;
+}
+
+/* ═══════ Buttons ═══════ */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  padding:12px 22px;border:none;border-radius:var(--radius-sm);
+  font-family:inherit;font-size:.88rem;font-weight:500;
+  cursor:pointer;min-height:48px;position:relative;overflow:hidden;
+  transition:transform .3s var(--ease-spring),box-shadow .3s var(--ease-smooth),background .4s var(--ease-smooth),border-color .4s;
+}
+.btn::after{
+  content:'';position:absolute;inset:0;background:rgba(255,255,255,0);
+  transition:background .25s;border-radius:inherit;
+}
+.btn:active::after{background:rgba(255,255,255,.2)}
+.btn:active{transform:scale(.94)}
+
+.btn-primary{
+  background:linear-gradient(135deg,var(--c400),var(--c500));color:#fff;
+  box-shadow:0 4px 16px rgba(0,0,0,.12);
+  transition:transform .3s var(--ease-spring),box-shadow .3s,background .6s;
+}
+.btn-secondary{background:rgba(255,255,255,.65);color:var(--text-primary);border:1px solid var(--c200)}
+.btn-danger{background:rgba(239,68,68,.08);color:#ef4444;border:1px solid rgba(239,68,68,.18)}
+.btn-sm{padding:8px 14px;font-size:.78rem;min-height:40px}
+.btn-icon{width:52px;height:52px;padding:0;border-radius:50%}
+.btn-icon-sm{width:44px;height:44px;padding:0;border-radius:50%}
+
+/* Active mode for shuffle/repeat */
+.active-mode{background:var(--c100)!important;border-color:var(--c400)!important;color:var(--c600)!important}
+
+/* ═══════ Toolbar ═══════ */
+.toolbar{
+  display:flex;gap:10px;margin-bottom:20px;padding:0 2px;
+  animation:fadeSlideUp .7s var(--ease-out) .1s both;
+}
+
+/* ═══════ Song List ═══════ */
+.song-list{display:flex;flex-direction:column;gap:10px;margin-bottom:20px}
+
+.song-card{
+  padding:14px 16px;display:flex;align-items:center;gap:14px;
+  cursor:pointer;position:relative;overflow:hidden;
+  transition:transform .35s var(--ease-spring),box-shadow .35s var(--ease-smooth),
+             border-color .4s,background .4s;
+}
+.song-card:active{transform:scale(.97)}
+.song-card.playing{
+  border-color:var(--c300);background:rgba(255,255,255,.88);
+  box-shadow:0 10px 40px rgba(var(--orb-r),var(--orb-g),var(--orb-b),.16);
+}
+/* Shimmer on playing card */
+.song-card.playing::before{
+  content:'';position:absolute;top:0;left:-100%;width:60%;height:100%;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.25),transparent);
+  animation:shimmer 3s ease-in-out infinite;
+}
+@keyframes shimmer{0%{left:-100%}100%{left:200%}}
+
+.song-card.dragging{opacity:.4;transform:scale(.95)}
+.song-card.drag-over{border-top:3px solid var(--c400)}
+
+.song-thumb{
+  width:54px;height:54px;border-radius:14px;background:var(--c100);flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:1.3rem;color:var(--c300);
+  overflow:hidden;transition:transform .4s var(--ease-spring),background .4s;
+}
+.song-card:active .song-thumb{transform:scale(.92)}
+.song-thumb img{width:100%;height:100%;object-fit:cover;transition:transform .5s var(--ease-smooth)}
+.song-card:active .song-thumb img{transform:scale(1.08)}
+
+.song-info{flex:1;min-width:0}
+.song-title{
+  font-family:'Hannari',serif;font-size:1rem;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;letter-spacing:.02em;
+}
+.song-artist{font-size:.74rem;color:var(--text-secondary);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.song-actions{display:flex;gap:5px;flex-shrink:0}
+.song-actions button{
+  width:34px;height:34px;border:none;border-radius:50%;
+  background:rgba(0,0,0,.04);cursor:pointer;font-size:.95rem;
+  display:flex;align-items:center;justify-content:center;
+  transition:transform .3s var(--ease-spring),background .2s;
+}
+.song-actions button:active{transform:scale(.85);background:rgba(0,0,0,.1)}
+
+/* ═══════ Player Bar ═══════ */
+.player-bar{
+  position:fixed;bottom:0;left:0;right:0;z-index:100;
+  background:rgba(255,255,255,.78);
+  backdrop-filter:blur(32px) saturate(1.6);-webkit-backdrop-filter:blur(32px) saturate(1.6);
+  border-top:1px solid var(--glass-border);
+  box-shadow:0 -6px 40px rgba(0,0,0,.06);
+  padding:0 0 env(safe-area-inset-bottom,0);
+  transform:translateY(100%);
+  transition:transform .5s var(--ease-spring),background .6s,border-color .6s;
+}
+.player-bar.visible{transform:translateY(0)}
+.player-inner{max-width:500px;margin:0 auto;padding:12px 16px 14px}
+
+/* Spectrum */
+.spectrum-wrap{height:36px;margin-bottom:8px;border-radius:10px;overflow:hidden;background:rgba(0,0,0,.02)}
+#spectrumCanvas{width:100%;height:100%;display:block}
+
+/* Progress */
+.progress-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.progress-bar-wrap{flex:1;height:5px;background:var(--c100);border-radius:3px;cursor:pointer;position:relative;transition:background .4s}
+.progress-bar-fill{
+  height:100%;border-radius:3px;width:0;
+  background:linear-gradient(90deg,var(--c400),var(--c500));
+  transition:width .15s linear,background .6s;
+  position:relative;
+}
+.progress-bar-fill::after{
+  content:'';position:absolute;right:-5px;top:50%;transform:translateY(-50%) scale(0);
+  width:12px;height:12px;border-radius:50%;background:var(--c500);
+  box-shadow:0 0 8px rgba(var(--orb-r),var(--orb-g),var(--orb-b),.4);
+  transition:transform .25s var(--ease-spring);
+}
+.progress-bar-wrap:hover .progress-bar-fill::after,
+.progress-bar-wrap:active .progress-bar-fill::after{transform:translateY(-50%) scale(1)}
+.progress-time{font-size:.68rem;color:var(--text-secondary);min-width:36px;text-align:center}
+
+/* Controls */
+.controls-row{display:flex;align-items:center;justify-content:center;gap:8px}
+.play-btn{
+  width:58px!important;height:58px!important;
+  background:linear-gradient(135deg,var(--c400),var(--c500))!important;color:#fff!important;
+  box-shadow:0 6px 24px rgba(var(--orb-r),var(--orb-g),var(--orb-b),.3);
+  transition:transform .3s var(--ease-spring),box-shadow .3s,background .6s!important;
+}
+.play-btn:active{transform:scale(.88)!important;box-shadow:0 2px 12px rgba(0,0,0,.15)!important}
+
+/* Pulse on playing */
+@keyframes pulse-ring{
+  0%{box-shadow:0 0 0 0 rgba(var(--orb-r),var(--orb-g),var(--orb-b),.35)}
+  70%{box-shadow:0 0 0 12px rgba(var(--orb-r),var(--orb-g),var(--orb-b),0)}
+  100%{box-shadow:0 0 0 0 rgba(var(--orb-r),var(--orb-g),var(--orb-b),0)}
+}
+.play-btn.is-playing{animation:pulse-ring 2s var(--ease-smooth) infinite}
+
+/* Volume */
+.volume-row{display:flex;align-items:center;gap:8px;margin-top:8px}
+.volume-slider{
+  flex:1;-webkit-appearance:none;height:4px;border-radius:2px;
+  background:var(--c100);outline:none;transition:background .4s;
+}
+.volume-slider::-webkit-slider-thumb{
+  -webkit-appearance:none;width:18px;height:18px;border-radius:50%;
+  background:var(--c400);cursor:pointer;
+  transition:transform .25s var(--ease-spring),background .4s;
+}
+.volume-slider:active::-webkit-slider-thumb{transform:scale(1.3)}
+.ios-volume-msg{font-size:.7rem;color:var(--text-secondary);text-align:center;margin-top:6px}
+
+/* Now Playing Info */
+.now-playing-info{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.now-playing-thumb{
+  width:40px;height:40px;border-radius:10px;overflow:hidden;
+  background:var(--c100);flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:1rem;
+  transition:transform .4s var(--ease-spring),background .4s;
+}
+.now-playing-thumb img{width:100%;height:100%;object-fit:cover}
+.now-playing-text{flex:1;min-width:0}
+.now-playing-title{font-family:'Hannari',serif;font-size:.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.now-playing-artist{font-size:.7rem;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ═══════ Toast ═══════ */
+.toast{
+  position:fixed;top:20px;left:50%;transform:translateX(-50%) translateY(-100px);
+  z-index:300;padding:12px 24px;border-radius:var(--radius-sm);
+  background:rgba(30,27,46,.88);color:#fff;font-size:.82rem;
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  transition:transform .4s var(--ease-spring);
+  pointer-events:none;max-width:90vw;text-align:center;
+}
+.toast.show{transform:translateX(-50%) translateY(0)}
+
+/* ═══════ Modal ═══════ */
+.modal-overlay{
+  position:fixed;inset:0;z-index:200;
+  background:rgba(0,0,0,0);
+  backdrop-filter:blur(0px);-webkit-backdrop-filter:blur(0px);
+  display:flex;align-items:flex-end;justify-content:center;padding:16px;
+  pointer-events:none;
+  transition:background .35s var(--ease-smooth),backdrop-filter .35s;
+}
+.modal-overlay.open{
+  background:rgba(0,0,0,.32);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  pointer-events:auto;
+}
+.modal{
+  width:100%;max-width:500px;max-height:85vh;
+  background:rgba(255,255,255,.96);border-radius:24px 24px 10px 10px;
+  overflow:hidden;display:flex;flex-direction:column;
+  box-shadow:0 -10px 60px rgba(0,0,0,.12);
+  transform:translateY(105%);
+  transition:transform .45s var(--ease-spring);
+}
+.modal-overlay.open .modal{transform:translateY(0)}
+
+.modal-header{
+  padding:20px 22px;border-bottom:1px solid rgba(0,0,0,.05);
+  display:flex;align-items:center;justify-content:space-between;
+}
+.modal-header h2{font-family:'Hannari',serif;font-size:1.1rem;font-weight:400;letter-spacing:.04em}
+.modal-close{
+  width:34px;height:34px;border:none;background:rgba(0,0,0,.05);
+  border-radius:50%;cursor:pointer;font-size:1.1rem;
+  display:flex;align-items:center;justify-content:center;
+  transition:transform .3s var(--ease-spring),background .2s;
+}
+.modal-close:active{transform:scale(.85);background:rgba(0,0,0,.1)}
+.modal-body{padding:22px;overflow-y:auto;flex:1;-webkit-overflow-scrolling:touch}
+
+/* ═══════ Form ═══════ */
+.form-group{margin-bottom:18px}
+.form-label{display:block;font-size:.76rem;font-weight:500;color:var(--text-secondary);margin-bottom:6px;letter-spacing:.02em}
+.form-input{
+  width:100%;padding:12px 14px;border:1px solid #e8e6f0;
+  border-radius:var(--radius-sm);font-family:inherit;font-size:.88rem;
+  background:rgba(255,255,255,.8);min-height:48px;
+  transition:border-color .3s,box-shadow .3s;
+}
+.form-input:focus{outline:none;border-color:var(--c400);box-shadow:0 0 0 3px rgba(var(--orb-r),var(--orb-g),var(--orb-b),.12)}
+textarea.form-input{min-height:120px;resize:vertical}
+
+.file-drop{
+  border:2px dashed var(--c200);border-radius:var(--radius-sm);
+  padding:22px 16px;text-align:center;cursor:pointer;
+  background:rgba(var(--orb-r),var(--orb-g),var(--orb-b),.03);
+  min-height:48px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+  transition:border-color .3s,background .3s,transform .3s var(--ease-spring);
+}
+.file-drop:active,.file-drop.dragover{border-color:var(--c400);background:var(--c50);transform:scale(.98)}
+.file-drop .icon{font-size:1.5rem}
+.file-drop .label{font-size:.8rem;color:var(--text-secondary)}
+.file-drop .sublabel{font-size:.7rem;color:var(--c500)}
+.file-drop .loaded{font-size:.8rem;color:var(--c600);font-weight:500}
+
+/* ═══════ Theme Picker (inside settings) ═══════ */
+.theme-grid{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+.theme-chip{
+  display:flex;align-items:center;gap:8px;padding:8px 14px 8px 8px;
+  border-radius:30px;border:2px solid transparent;cursor:pointer;
+  background:rgba(255,255,255,.6);
+  transition:all .35s var(--ease-spring);
+}
+.theme-chip:active{transform:scale(.93)}
+.theme-chip.active{border-color:var(--c500);background:var(--c50);box-shadow:0 2px 12px rgba(var(--orb-r),var(--orb-g),var(--orb-b),.2)}
+.theme-chip .dot{width:22px;height:22px;border-radius:50%;flex-shrink:0;transition:transform .3s var(--ease-spring)}
+.theme-chip.active .dot{transform:scale(1.15)}
+.theme-chip .name{font-size:.78rem;color:var(--text-primary)}
+
+/* ═══════ Lyrics ═══════ */
+.lyrics-panel{padding:18px;margin-bottom:16px}
+.lyrics-panel h3{font-family:'Hannari',serif;font-size:1rem;font-weight:400;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.lyrics-line{
+  padding:10px 14px;border-radius:12px;margin-bottom:3px;
+  font-size:.86rem;line-height:1.75;cursor:pointer;
+  transition:all .35s var(--ease-smooth);
+  transform-origin:left center;
+}
+.lyrics-line:active{background:var(--c50);transform:scale(.98)}
+.lyrics-line.active{
+  background:linear-gradient(135deg,rgba(var(--orb-r),var(--orb-g),var(--orb-b),.14),rgba(var(--orb-r),var(--orb-g),var(--orb-b),.04));
+  color:var(--c600);font-weight:500;
+  transform:scale(1.02);
+  transition:all .4s var(--ease-spring);
+}
+.lyrics-line .time-badge{
+  display:inline-block;font-size:.62rem;color:var(--c500);
+  background:var(--c50);padding:2px 8px;border-radius:20px;
+  margin-right:6px;font-weight:600;vertical-align:middle;
+}
+
+/* Timing */
+.timing-controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.timing-line{
+  padding:10px 12px;border-radius:12px;margin-bottom:4px;
+  display:flex;align-items:center;gap:8px;font-size:.83rem;
+  background:rgba(0,0,0,.02);
+  transition:all .3s var(--ease-smooth);
+}
+.timing-line .text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.timing-line .time{font-size:.7rem;color:var(--c500);font-weight:600;min-width:50px;text-align:right}
+.timing-line.current{background:var(--c50);border:1px solid var(--c200);transform:scale(1.01)}
+.timing-line button{
+  width:32px;height:32px;border:none;border-radius:50%;background:var(--c100);
+  cursor:pointer;font-size:.78rem;flex-shrink:0;
+  transition:transform .25s var(--ease-spring),background .2s;
+}
+.timing-line button:active{transform:scale(.85)}
+
+/* ═══════ Section Label ═══════ */
+.section-label{
+  font-family:'Hannari',serif;font-size:.88rem;color:var(--text-secondary);
+  margin-bottom:10px;letter-spacing:.04em;
+}
+
+/* ═══════ Empty ═══════ */
+.empty-state{
+  text-align:center;padding:52px 24px;
+  animation:fadeSlideUp .7s var(--ease-out) .2s both;
+}
+.empty-state .icon{font-size:2.8rem;margin-bottom:14px;animation:float 4s ease-in-out infinite}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+.empty-state p{color:var(--text-secondary);font-size:.86rem;line-height:1.8}
+
+/* ═══════ Utils ═══════ */
+.mt-8{margin-top:8px}.mt-16{margin-top:16px}
+.hidden{display:none!important}
+.text-sm{font-size:.78rem}.text-secondary{color:var(--text-secondary)}
+
+@media(max-width:380px){
+  #app{padding:14px 10px 150px}
+  .btn{padding:10px 14px;font-size:.8rem}
+  .song-thumb{width:46px;height:46px}
+  .controls-row{gap:5px}
+  .btn-icon-sm{width:38px;height:38px}
+}
+</style>
+</head>
+<body>
+
+<div class="toast" id="toast"></div>
+
+<div id="app">
+  <div class="header glass">
+    <h1>🍑 ももプレイヤー</h1>
+    <p>音楽展示即売会プレイヤー</p>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn btn-primary" onclick="openAddModal()" style="flex:1">＋ 曲を追加</button>
+    <button class="btn btn-secondary" onclick="openSettingsModal()">⚙</button>
+  </div>
+
+  <div id="songList" class="song-list"></div>
+
+  <div id="emptyState" class="empty-state glass">
+    <div class="icon">🎵</div>
+    <p>まだ曲がありません<br>「＋ 曲を追加」から始めましょう</p>
+  </div>
+
+  <div id="lyricsPanel" class="lyrics-panel glass hidden">
+    <h3>🎤 歌詞</h3>
+    <div id="lyricsContent"></div>
+  </div>
+</div>
+
+<!-- Player Bar -->
+<div class="player-bar" id="playerBar">
+  <div class="player-inner">
+    <div class="now-playing-info">
+      <div class="now-playing-thumb" id="nowPlayingThumb">🎵</div>
+      <div class="now-playing-text">
+        <div class="now-playing-title" id="nowPlayingTitle">-</div>
+        <div class="now-playing-artist" id="nowPlayingArtist">-</div>
+      </div>
+      <button class="btn btn-sm btn-secondary" onclick="openLyricsTimingModal()" id="btnLyricsTiming" style="display:none;padding:6px 10px;min-height:34px;font-size:.7rem;">歌詞タイミング</button>
+    </div>
+    <div class="spectrum-wrap"><canvas id="spectrumCanvas"></canvas></div>
+    <div class="progress-row">
+      <span class="progress-time" id="currentTime">0:00</span>
+      <div class="progress-bar-wrap" id="progressWrap"><div class="progress-bar-fill" id="progressFill"></div></div>
+      <span class="progress-time" id="durationTime">0:00</span>
+    </div>
+    <div class="controls-row">
+      <button class="btn btn-icon-sm btn-secondary" onclick="toggleShuffle()" id="shuffleBtn" title="シャッフル">🔀</button>
+      <button class="btn btn-icon-sm btn-secondary" onclick="prevSong()">⏮</button>
+      <button class="btn btn-icon-sm btn-secondary" onclick="rewind5()">↩</button>
+      <button class="btn btn-icon play-btn" onclick="togglePlay()" id="playBtn">▶</button>
+      <button class="btn btn-icon-sm btn-secondary" onclick="forward5()">↪</button>
+      <button class="btn btn-icon-sm btn-secondary" onclick="nextSong()">⏭</button>
+      <button class="btn btn-icon-sm btn-secondary" onclick="toggleRepeat()" id="repeatBtn" title="リピート">🔁</button>
+    </div>
+    <div id="volumeRow" class="volume-row">
+      <span style="font-size:.85rem">🔈</span>
+      <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.01" value="0.8">
+      <span style="font-size:.85rem">🔊</span>
+    </div>
+    <div id="iosVolumeMsg" class="ios-volume-msg hidden">📱 音量はiOSの音量ボタンで調整してください</div>
+  </div>
+</div>
+
+<!-- Add Modal -->
+<div class="modal-overlay" id="addModal">
+  <div class="modal">
+    <div class="modal-header"><h2>曲を追加</h2><button class="modal-close" onclick="closeModal('addModal')">✕</button></div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">音声ファイル *</label>
+        <div class="file-drop" id="audioDrop" onclick="$('audioFileInput').click()">
+          <div class="icon">🎵</div><div class="label">タップしてMP3を選択</div><div class="sublabel">またはクラウドURLを下に入力</div>
+        </div>
+        <input type="file" id="audioFileInput" accept="audio/*" style="display:none">
+        <input type="text" class="form-input mt-8" id="audioUrl" placeholder="音声URL（Dropbox等）https://...">
+      </div>
+      <div class="form-group"><label class="form-label">タイトル *</label><input type="text" class="form-input" id="songTitle" placeholder="曲名"></div>
+      <div class="form-group"><label class="form-label">アーティスト</label><input type="text" class="form-input" id="songArtist" placeholder="アーティスト名"></div>
+      <div class="form-group">
+        <label class="form-label">カバー画像</label>
+        <div class="file-drop" id="imageDrop" onclick="$('imageFileInput').click()">
+          <div class="icon">🖼</div><div class="label">タップして画像を選択</div><div class="sublabel">またはクラウドURLを下に入力</div>
+        </div>
+        <input type="file" id="imageFileInput" accept="image/*" style="display:none">
+        <input type="text" class="form-input mt-8" id="imageUrl" placeholder="画像URL https://...">
+      </div>
+      <div class="form-group">
+        <label class="form-label">歌詞（なければ空欄）</label>
+        <textarea class="form-input" id="songLyrics" placeholder="歌詞をペーストしてください&#10;（1行ずつ改行）"></textarea>
+        <div style="margin-top:6px"><button class="btn btn-sm btn-secondary" onclick="$('lyricsFileInput').click()">📄 テキストファイルから読み込み</button><input type="file" id="lyricsFileInput" accept=".txt,.lrc" style="display:none"></div>
+      </div>
+      <button class="btn btn-primary" style="width:100%" onclick="saveSong()">保存する</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal-overlay" id="editModal">
+  <div class="modal">
+    <div class="modal-header"><h2>曲を編集</h2><button class="modal-close" onclick="closeModal('editModal')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="editSongId">
+      <div class="form-group"><label class="form-label">タイトル *</label><input type="text" class="form-input" id="editTitle"></div>
+      <div class="form-group"><label class="form-label">アーティスト</label><input type="text" class="form-input" id="editArtist"></div>
+      <div class="form-group">
+        <label class="form-label">カバー画像（変更する場合）</label>
+        <div class="file-drop" id="editImageDrop" onclick="$('editImageInput').click()">
+          <div class="icon">🖼</div><div class="label">タップして画像を選択</div>
+        </div>
+        <input type="file" id="editImageInput" accept="image/*" style="display:none">
+        <input type="text" class="form-input mt-8" id="editImageUrl" placeholder="画像URL https://...">
+      </div>
+      <div class="form-group">
+        <label class="form-label">歌詞</label>
+        <textarea class="form-input" id="editLyrics" placeholder="歌詞をペースト"></textarea>
+        <div style="margin-top:6px"><button class="btn btn-sm btn-secondary" onclick="$('editLyricsFile').click()">📄 テキストファイル読み込み</button><input type="file" id="editLyricsFile" accept=".txt,.lrc" style="display:none"></div>
+      </div>
+      <button class="btn btn-primary" style="width:100%" onclick="updateSong()">更新する</button>
+    </div>
+  </div>
+</div>
+
+<!-- Timing Modal -->
+<div class="modal-overlay" id="timingModal">
+  <div class="modal">
+    <div class="modal-header"><h2>歌詞タイミング設定</h2><button class="modal-close" onclick="closeModal('timingModal')">✕</button></div>
+    <div class="modal-body">
+      <p class="text-sm text-secondary" style="margin-bottom:12px">曲を再生しながら「⏱」を歌詞のタイミングでタップ</p>
+      <div class="timing-controls">
+        <button class="btn btn-sm btn-secondary" onclick="tRew(3)">↩ 3秒</button>
+        <button class="btn btn-sm btn-secondary" onclick="tRew(1)">↩ 1秒</button>
+        <button class="btn btn-sm btn-primary" onclick="togglePlay()" id="timingPlayBtn">▶ 再生</button>
+        <button class="btn btn-sm btn-danger" onclick="clearAllTimings()">全消去</button>
+      </div>
+      <div id="timingLines"></div>
+      <button class="btn btn-primary mt-16" style="width:100%" onclick="saveTimings()">タイミングを保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Modal (with theme) -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal">
+    <div class="modal-header"><h2>設定</h2><button class="modal-close" onclick="closeModal('settingsModal')">✕</button></div>
+    <div class="modal-body">
+
+      <div class="section-label">🎨 テーマカラー</div>
+      <div class="theme-grid" id="themeGrid"></div>
+
+      <div class="section-label">📋 並び替え</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:22px">
+        <button class="btn btn-sm btn-secondary" onclick="sortSongs('title')">タイトル順</button>
+        <button class="btn btn-sm btn-secondary" onclick="sortSongs('artist')">アーティスト順</button>
+        <button class="btn btn-sm btn-secondary" onclick="sortSongs('added')">追加順</button>
+      </div>
+
+      <div class="section-label">🗄 データ管理</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-sm btn-danger" onclick="cleanupDB()">🧹 ゴミ掃除</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteAllSongs()">🗑 全曲削除</button>
+      </div>
+      <div id="dbStatus" class="text-sm text-secondary mt-16"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+
+/* ═══ Toast ═══ */
+let toastTimer=null;
+function showToast(msg,duration){
+  duration=duration||2500;
+  const t=$('toast');t.textContent=msg;t.classList.add('show');
+  if(toastTimer)clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>t.classList.remove('show'),duration);
+}
+
+/* ═══ Themes ═══ */
+const THEMES=[
+  {id:'momo',  name:'もも',   dot:'#f472b6',c50:'#fef1f6',c100:'#fde4ef',c200:'#fcc8df',c300:'#fbadcf',c400:'#f472b6',c500:'#ec4899',c600:'#db2777',bg1:'#fff0f6',bg2:'#fdf2f8',bg3:'#fce7f3',bg4:'#f0f9ff',orbR:251,orbG:173,orbB:207},
+  {id:'fuji',  name:'ふじ',   dot:'#a78bfa',c50:'#f5f3ff',c100:'#ede9fe',c200:'#ddd6fe',c300:'#c4b5fd',c400:'#a78bfa',c500:'#8b5cf6',c600:'#7c3aed',bg1:'#faf5ff',bg2:'#f5f3ff',bg3:'#ede9fe',bg4:'#f0f9ff',orbR:196,orbG:181,orbB:253},
+  {id:'sora',  name:'そら',   dot:'#60a5fa',c50:'#eff6ff',c100:'#dbeafe',c200:'#bfdbfe',c300:'#93c5fd',c400:'#60a5fa',c500:'#3b82f6',c600:'#2563eb',bg1:'#f0f9ff',bg2:'#eff6ff',bg3:'#dbeafe',bg4:'#f5f3ff',orbR:147,orbG:197,orbB:253},
+  {id:'matcha',name:'まっちゃ',dot:'#4ade80',c50:'#f0fdf4',c100:'#dcfce7',c200:'#bbf7d0',c300:'#86efac',c400:'#4ade80',c500:'#22c55e',c600:'#16a34a',bg1:'#f0fdf4',bg2:'#ecfdf5',bg3:'#dcfce7',bg4:'#fffbeb',orbR:134,orbG:239,orbB:172},
+  {id:'yuuhi', name:'ゆうひ', dot:'#fb923c',c50:'#fff7ed',c100:'#ffedd5',c200:'#fed7aa',c300:'#fdba74',c400:'#fb923c',c500:'#f97316',c600:'#ea580c',bg1:'#fffbeb',bg2:'#fff7ed',bg3:'#ffedd5',bg4:'#fef1f6',orbR:253,orbG:186,orbB:116},
+  {id:'sakura',name:'さくら', dot:'#fda4af',c50:'#fff1f2',c100:'#ffe4e6',c200:'#fecdd3',c300:'#fda4af',c400:'#fb7185',c500:'#f43f5e',c600:'#e11d48',bg1:'#fff1f2',bg2:'#fff0f3',bg3:'#ffe4e6',bg4:'#fdf2f8',orbR:253,orbG:164,orbB:175},
+  {id:'sumi',  name:'すみ',   dot:'#78716c',c50:'#fafaf9',c100:'#f5f5f4',c200:'#e7e5e4',c300:'#d6d3d1',c400:'#a8a29e',c500:'#78716c',c600:'#57534e',bg1:'#fafaf9',bg2:'#f5f5f4',bg3:'#e7e5e4',bg4:'#fafaf9',orbR:214,orbG:211,orbB:209},
+];
+let currentTheme='momo';
+
+function applyTheme(id){
+  const t=THEMES.find(x=>x.id===id);if(!t)return;currentTheme=id;
+  const s=document.documentElement.style;
+  ['c50','c100','c200','c300','c400','c500','c600'].forEach(k=>s.setProperty('--'+k,t[k]));
+  s.setProperty('--bg1',t.bg1);s.setProperty('--bg2',t.bg2);s.setProperty('--bg3',t.bg3);s.setProperty('--bg4',t.bg4);
+  s.setProperty('--orb-r',t.orbR);s.setProperty('--orb-g',t.orbG);s.setProperty('--orb-b',t.orbB);
+  s.setProperty('--glass-shadow',`0 8px 32px rgba(${t.orbR},${t.orbG},${t.orbB},.10),0 2px 8px rgba(0,0,0,.04)`);
+  document.querySelectorAll('.theme-chip').forEach(c=>c.classList.toggle('active',c.dataset.theme===id));
+  try{localStorage.setItem('momo_theme',id)}catch(e){}
+}
+
+function buildThemeGrid(){
+  const g=$('themeGrid');
+  THEMES.forEach(t=>{
+    const c=document.createElement('button');
+    c.className='theme-chip'+(t.id===currentTheme?' active':'');
+    c.dataset.theme=t.id;
+    c.innerHTML=`<span class="dot" style="background:${t.dot}"></span><span class="name">${t.name}</span>`;
+    c.onclick=()=>applyTheme(t.id);
+    g.appendChild(c);
+  });
+}
+
+function loadSavedTheme(){
+  try{const s=localStorage.getItem('momo_theme');if(s&&THEMES.find(t=>t.id===s))currentTheme=s}catch(e){}
+  applyTheme(currentTheme);
+}
+
+/* ═══ State ═══ */
+let db=null;const DB_NAME='MomoPlayerDB',DB_VERSION=2;
+let songs=[],currentSongIndex=-1,isPlaying=false;
+let audio=new Audio(),audioContext=null,analyser=null,sourceNode=null,animFrameId=null;
+let pendingAudioBuf=null,pendingImgBuf=null,pendingImgType=null;
+let timingData=[],timingCurLine=0;
+const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+
+/* ═══ Repeat / Shuffle ═══ */
+let repeatMode='off'; // 'off','all','one'
+let shuffleMode=false;
+
+function toggleRepeat(){
+  if(repeatMode==='off')repeatMode='all';
+  else if(repeatMode==='all')repeatMode='one';
+  else repeatMode='off';
+  const btn=$('repeatBtn');
+  btn.textContent=repeatMode==='one'?'🔂':'🔁';
+  btn.classList.toggle('active-mode',repeatMode!=='off');
+  try{localStorage.setItem('momo_repeat',repeatMode)}catch(e){}
+  const labels={off:'リピート：オフ',all:'リピート：全曲',one:'リピート：1曲'};
+  showToast(labels[repeatMode]);
+}
+
+function toggleShuffle(){
+  shuffleMode=!shuffleMode;
+  $('shuffleBtn').classList.toggle('active-mode',shuffleMode);
+  try{localStorage.setItem('momo_shuffle',String(shuffleMode))}catch(e){}
+  showToast(shuffleMode?'シャッフル：オン':'シャッフル：オフ');
+}
+
+function loadPlaybackSettings(){
+  try{
+    const r=localStorage.getItem('momo_repeat');
+    if(r&&['off','all','one'].includes(r)){repeatMode=r;const btn=$('repeatBtn');btn.textContent=r==='one'?'🔂':'🔁';btn.classList.toggle('active-mode',r!=='off')}
+    const s=localStorage.getItem('momo_shuffle');
+    if(s==='true'){shuffleMode=true;$('shuffleBtn').classList.add('active-mode')}
+  }catch(e){}
+}
+
+/* ═══ IndexedDB ═══ */
+function openDB(){return new Promise((res,rej)=>{const r=indexedDB.open(DB_NAME,DB_VERSION);r.onupgradeneeded=e=>{const d=e.target.result;['songs','audioData','imageData'].forEach(n=>{if(!d.objectStoreNames.contains(n))d.createObjectStore(n,{keyPath:'id'})})};r.onsuccess=e=>{db=e.target.result;res(db)};r.onerror=e=>rej(e.target.error)})}
+function dbPut(s,d){return new Promise((r,j)=>{const t=db.transaction(s,'readwrite');t.objectStore(s).put(d);t.oncomplete=()=>r();t.onerror=e=>j(e.target.error)})}
+function dbGet(s,id){return new Promise((r,j)=>{const t=db.transaction(s,'readonly');const q=t.objectStore(s).get(id);q.onsuccess=()=>r(q.result);q.onerror=e=>j(e.target.error)})}
+function dbDel(s,id){return new Promise((r,j)=>{const t=db.transaction(s,'readwrite');t.objectStore(s).delete(id);t.oncomplete=()=>r();t.onerror=e=>j(e.target.error)})}
+function dbKeys(s){return new Promise((r,j)=>{const t=db.transaction(s,'readonly');const q=t.objectStore(s).getAllKeys();q.onsuccess=()=>r(q.result);q.onerror=e=>j(e.target.error)})}
+function dbAll(s){return new Promise((r,j)=>{const t=db.transaction(s,'readonly');const q=t.objectStore(s).getAll();q.onsuccess=()=>r(q.result||[]);q.onerror=e=>j(e.target.error)})}
+
+function setupiOS(){if(isIOS){$('volumeRow').classList.add('hidden');$('iosVolumeMsg').classList.remove('hidden')}}
+
+/* ═══ Cloud URL ═══ */
+function cloudUrl(u){
+  if(!u)return u;
+  if(u.includes('dropbox.com')){u=u.replace('www.dropbox.com','dl.dropboxusercontent.com').replace('?dl=0','?dl=1');if(!u.includes('dl=1')&&!u.includes('dl.dropboxusercontent.com'))u+=(u.includes('?')?'&':'?')+'dl=1'}
+  if(u.includes('drive.google.com/file/d/')){const m=u.match(/\/d\/([^\/]+)/);if(m)u='https://drive.google.com/uc?export=download&id='+m[1]}
+  return u;
+}
+
+/* ═══ URL Validation ═══ */
+function isValidUrl(str){
+  try{const u=new URL(str);return u.protocol==='https:'||u.protocol==='http:'}
+  catch{return false}
+}
+
+/* ═══ File ═══ */
+function readBuf(f){return new Promise((r,j)=>{const x=new FileReader();x.onload=()=>r(x.result);x.onerror=()=>j(x.error);x.readAsArrayBuffer(f)})}
+function fname2t(n){return n.replace(/\.[^.]+$/,'')}
+
+$('audioFileInput').addEventListener('change',async function(e){
+  const f=e.target.files[0];if(!f)return;
+  pendingAudioBuf=await readBuf(f);
+  $('audioDrop').innerHTML=`<div class="loaded">\u2705 ${escH(f.name)}</div>`;
+  const t=$('songTitle');if(!t.value.trim())t.value=fname2t(f.name);
+});
+$('imageFileInput').addEventListener('change',async function(e){
+  const f=e.target.files[0];if(!f)return;
+  pendingImgBuf=await readBuf(f);pendingImgType=f.type;
+  $('imageDrop').innerHTML=`<div class="loaded">\u2705 ${escH(f.name)}</div>`;
+});
+$('editImageInput').addEventListener('change',async function(e){
+  const f=e.target.files[0];if(!f)return;
+  pendingImgBuf=await readBuf(f);pendingImgType=f.type;
+  $('editImageDrop').innerHTML=`<div class="loaded">\u2705 ${escH(f.name)}</div>`;
+});
+$('lyricsFileInput').addEventListener('change',function(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{$('songLyrics').value=r.result};r.readAsText(f)});
+$('editLyricsFile').addEventListener('change',function(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{$('editLyrics').value=r.result};r.readAsText(f)});
+
+['audioDrop','imageDrop','editImageDrop'].forEach(id=>{
+  const el=$(id);
+  el.addEventListener('dragover',e=>{e.preventDefault();el.classList.add('dragover')});
+  el.addEventListener('dragleave',()=>el.classList.remove('dragover'));
+  el.addEventListener('drop',async e=>{
+    e.preventDefault();el.classList.remove('dragover');const f=e.dataTransfer.files[0];if(!f)return;
+    if(id.includes('audio')){pendingAudioBuf=await readBuf(f);el.innerHTML=`<div class="loaded">\u2705 ${escH(f.name)}</div>`;const t=$('songTitle');if(!t.value.trim())t.value=fname2t(f.name)}
+    else{pendingImgBuf=await readBuf(f);pendingImgType=f.type;el.innerHTML=`<div class="loaded">\u2705 ${escH(f.name)}</div>`}
+  });
+});
+
+/* ═══ CRUD ═══ */
+function gid(){return Date.now().toString(36)+Math.random().toString(36).substr(2,5)}
+
+async function saveSong(){
+  const title=$('songTitle').value.trim(),artist=$('songArtist').value.trim(),
+    lyrics=$('songLyrics').value.trim(),aUrl=$('audioUrl').value.trim(),iUrl=$('imageUrl').value.trim();
+  if(!title)return showToast('タイトルを入力してください');
+  if(!pendingAudioBuf&&!aUrl)return showToast('音声ファイルまたはURLを指定してください');
+  if(!pendingAudioBuf&&aUrl&&!isValidUrl(aUrl))return showToast('有効な音声URLを入力してください');
+  if(iUrl&&!isValidUrl(iUrl))return showToast('有効な画像URLを入力してください');
+  const id=gid(),song={id,title,artist:artist||'',lyrics:lyrics||'',lyricsTimings:[],
+    audioSource:pendingAudioBuf?'local':'url',audioUrl:aUrl?cloudUrl(aUrl):'',
+    imageSource:pendingImgBuf?'local':(iUrl?'url':'none'),imageUrl:iUrl?cloudUrl(iUrl):'',
+    imageType:pendingImgType||'',addedAt:Date.now(),order:songs.length};
+  try{
+    await dbPut('songs',song);
+    if(pendingAudioBuf)await dbPut('audioData',{id,buffer:pendingAudioBuf});
+    if(pendingImgBuf)await dbPut('imageData',{id,buffer:pendingImgBuf,type:pendingImgType});
+    songs.push(song);renderSongList();closeModal('addModal');showToast('曲を追加しました');
+  }catch(err){showToast('保存に失敗: '+err.message,4000)}
+}
+
+async function updateSong(){
+  const id=$('editSongId').value,song=songs.find(s=>s.id===id);if(!song)return;
+  song.title=$('editTitle').value.trim()||song.title;
+  song.artist=$('editArtist').value.trim();
+  song.lyrics=$('editLyrics').value.trim();
+  const iUrl=$('editImageUrl').value.trim();
+  if(iUrl&&!isValidUrl(iUrl))return showToast('有効な画像URLを入力してください');
+  if(pendingImgBuf){song.imageSource='local';song.imageType=pendingImgType;song.imageUrl='';await dbPut('imageData',{id,buffer:pendingImgBuf,type:pendingImgType})}
+  else if(iUrl){song.imageSource='url';song.imageUrl=cloudUrl(iUrl)}
+  await dbPut('songs',song);renderSongList();closeModal('editModal');
+  if(currentSongIndex>=0&&songs[currentSongIndex].id===id){updateNP();renderLyrics()}
+  showToast('曲を更新しました');
+}
+
+async function deleteSong(id){
+  if(!confirm('この曲を削除しますか？'))return;
+  const idx=songs.findIndex(s=>s.id===id);if(idx===-1)return;
+  if(currentSongIndex===idx){audio.pause();isPlaying=false;currentSongIndex=-1;$('playerBar').classList.remove('visible');$('lyricsPanel').classList.add('hidden')}
+  else if(currentSongIndex>idx)currentSongIndex--;
+  revokeThumbUrl(id);
+  songs.splice(idx,1);await dbDel('songs',id);await dbDel('audioData',id).catch(()=>{});await dbDel('imageData',id).catch(()=>{});renderSongList();
+  showToast('曲を削除しました');
+}
+
+/* ═══ XSS-safe image helper ═══ */
+function setImgSafe(el,url){
+  el.textContent='';
+  const img=document.createElement('img');
+  img.alt='';
+  img.style.cssText='width:100%;height:100%;object-fit:cover';
+  img.onerror=function(){el.textContent='🎵'};
+  img.src=url;
+  el.appendChild(img);
+}
+
+/* ═══ ObjectURL tracking (memory leak prevention) ═══ */
+const thumbUrls=new Map();
+function revokeThumbUrl(id){
+  if(thumbUrls.has(id)){URL.revokeObjectURL(thumbUrls.get(id));thumbUrls.delete(id)}
+}
+
+/* ═══ Render ═══ */
+function renderSongList(){
+  const list=$('songList'),empty=$('emptyState');
+  if(!songs.length){list.innerHTML='';empty.style.display='';return}
+  empty.style.display='none';
+  list.innerHTML=songs.map((s,i)=>`
+    <div class="song-card glass anim-in ${currentSongIndex===i?'playing':''}"
+      style="animation-delay:${i*0.05}s" draggable="true" data-index="${i}"
+      onclick="playSong(${i})" ondragstart="onDS(event,${i})" ondragover="onDO(event)" ondrop="onDr(event,${i})" ondragend="onDE(event)">
+      <div class="song-thumb" id="thumb_${s.id}">🎵</div>
+      <div class="song-info"><div class="song-title">${escH(s.title)}</div><div class="song-artist">${escH(s.artist||'Unknown')}</div></div>
+      <div class="song-actions" onclick="event.stopPropagation()">
+        <button onclick="openEditModal('${s.id}')">✏️</button>
+        <button onclick="deleteSong('${s.id}')">🗑</button>
+      </div>
+    </div>`).join('');
+  songs.forEach(s=>loadThumb(s));
+}
+
+async function loadThumb(song){
+  const el=$('thumb_'+song.id);if(!el)return;
+  revokeThumbUrl(song.id);
+  let u=null;
+  try{
+    if(song.imageSource==='local'){const d=await dbGet('imageData',song.id);if(d&&d.buffer){u=URL.createObjectURL(new Blob([d.buffer],{type:d.type||'image/jpeg'}));thumbUrls.set(song.id,u)}}
+    else if(song.imageSource==='url'&&song.imageUrl)u=song.imageUrl;
+  }catch(e){}
+  if(u)setImgSafe(el,u);
+}
+function escH(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+
+/* ═══ Drag ═══ */
+let dragIdx=-1;
+function onDS(e,i){dragIdx=i;e.target.closest('.song-card').classList.add('dragging');e.dataTransfer.effectAllowed='move'}
+function onDO(e){e.preventDefault();e.currentTarget.classList.add('drag-over')}
+function onDr(e,ti){
+  e.preventDefault();e.currentTarget.classList.remove('drag-over');
+  if(dragIdx===ti||dragIdx<0)return;
+  const[m]=songs.splice(dragIdx,1);songs.splice(ti,0,m);
+  if(currentSongIndex===dragIdx)currentSongIndex=ti;
+  else if(dragIdx<currentSongIndex&&ti>=currentSongIndex)currentSongIndex--;
+  else if(dragIdx>currentSongIndex&&ti<=currentSongIndex)currentSongIndex++;
+  saveSongOrder();renderSongList();
+}
+function onDE(e){const c=e.target.closest('.song-card');if(c)c.classList.remove('dragging');document.querySelectorAll('.drag-over').forEach(el=>el.classList.remove('drag-over'));dragIdx=-1}
+
+/* Batch saveSongOrder — single transaction */
+async function saveSongOrder(){
+  const tx=db.transaction('songs','readwrite');
+  const store=tx.objectStore('songs');
+  for(let i=0;i<songs.length;i++){songs[i].order=i;store.put(songs[i])}
+  return new Promise((res,rej)=>{tx.oncomplete=res;tx.onerror=e=>rej(e.target.error)});
+}
+
+/* ═══ Sort ═══ */
+function sortSongs(by){
+  if(by==='title')songs.sort((a,b)=>a.title.localeCompare(b.title,'ja'));
+  else if(by==='artist')songs.sort((a,b)=>(a.artist||'').localeCompare(b.artist||'','ja'));
+  else songs.sort((a,b)=>a.addedAt-b.addedAt);
+  saveSongOrder();renderSongList();closeModal('settingsModal');
+}
+
+/* ═══ Playback ═══ */
+async function playSong(idx){
+  if(idx<0||idx>=songs.length)return;const song=songs[idx];currentSongIndex=idx;
+  audio.pause();if(audio._oUrl){URL.revokeObjectURL(audio._oUrl);audio._oUrl=null}
+  try{
+    if(song.audioSource==='local'){
+      const d=await dbGet('audioData',song.id);
+      if(!d||!d.buffer){showToast('音声データが見つかりません',3000);return}
+      const b=new Blob([d.buffer],{type:'audio/mpeg'}),u=URL.createObjectURL(b);audio._oUrl=u;audio.src=u;
+    }else{
+      if(!song.audioUrl){showToast('音声URLが設定されていません',3000);return}
+      audio.src=song.audioUrl;
+    }
+    audio.load();await audio.play();isPlaying=true;
+    $('playBtn').textContent='⏸';$('playBtn').classList.add('is-playing');
+    $('playerBar').classList.add('visible');
+    updateNP();renderSongList();renderLyrics();initAC();startSpectrum();updateMediaSession();
+  }catch(err){
+    console.error(err);isPlaying=false;
+    $('playBtn').textContent='▶';$('playBtn').classList.remove('is-playing');
+    $('playerBar').classList.add('visible');updateNP();renderSongList();
+    showToast('再生に失敗しました: '+err.message,4000);
+  }
+}
+
+function togglePlay(){
+  if(currentSongIndex<0){if(songs.length)playSong(0);return}
+  if(isPlaying){
+    audio.pause();isPlaying=false;
+    $('playBtn').textContent='▶';$('playBtn').classList.remove('is-playing');
+    const t=$('timingPlayBtn');if(t)t.textContent='▶ 再生';
+  }else{
+    audio.play().then(()=>{
+      isPlaying=true;$('playBtn').textContent='⏸';$('playBtn').classList.add('is-playing');
+      const t=$('timingPlayBtn');if(t)t.textContent='⏸ 一時停止';
+      startSpectrum();
+    }).catch(()=>{});
+  }
+}
+
+function prevSong(){
+  if(!songs.length)return;
+  if(shuffleMode){
+    let next;do{next=Math.floor(Math.random()*songs.length)}while(next===currentSongIndex&&songs.length>1);
+    playSong(next);
+  }else{
+    playSong(currentSongIndex<=0?songs.length-1:currentSongIndex-1);
+  }
+}
+
+function nextSong(){
+  if(!songs.length)return;
+  if(repeatMode==='one'){audio.currentTime=0;audio.play().catch(()=>{});return}
+  if(shuffleMode){
+    let next;do{next=Math.floor(Math.random()*songs.length)}while(next===currentSongIndex&&songs.length>1);
+    playSong(next);
+  }else if(currentSongIndex>=songs.length-1){
+    if(repeatMode==='all')playSong(0);
+    else{isPlaying=false;$('playBtn').textContent='▶';$('playBtn').classList.remove('is-playing')}
+  }else{
+    playSong(currentSongIndex+1);
+  }
+}
+
+function rewind5(){audio.currentTime=Math.max(0,audio.currentTime-5)}
+function forward5(){audio.currentTime=Math.min(audio.duration||0,audio.currentTime+5)}
+
+/* ═══ Volume ═══ */
+$('volumeSlider').addEventListener('input',function(){if(!isIOS)audio.volume=parseFloat(this.value)});
+function adjustVolume(delta){
+  if(isIOS)return;
+  const v=Math.max(0,Math.min(1,audio.volume+delta));
+  audio.volume=v;$('volumeSlider').value=v;
+}
+
+/* ═══ Progress ═══ */
+audio.addEventListener('timeupdate',()=>{
+  if(!audio.duration)return;
+  $('progressFill').style.width=(audio.currentTime/audio.duration*100)+'%';
+  $('currentTime').textContent=fmtT(audio.currentTime);
+  $('durationTime').textContent=fmtT(audio.duration);
+  highlightLyrics(audio.currentTime);
+});
+audio.addEventListener('ended',()=>nextSong());
+
+/* Click seek */
+$('progressWrap').addEventListener('click',function(e){if(!audio.duration)return;audio.currentTime=((e.clientX-this.getBoundingClientRect().left)/this.getBoundingClientRect().width)*audio.duration});
+
+/* Touch seek — supports drag via touchmove */
+function touchSeek(e){
+  if(!audio.duration)return;
+  const r=this.getBoundingClientRect();
+  audio.currentTime=Math.max(0,Math.min(1,(e.touches[0].clientX-r.left)/r.width))*audio.duration;
+}
+$('progressWrap').addEventListener('touchstart',touchSeek,{passive:true});
+$('progressWrap').addEventListener('touchmove',touchSeek,{passive:true});
+
+function fmtT(s){if(!s||isNaN(s))return'0:00';return Math.floor(s/60)+':'+(Math.floor(s%60)<10?'0':'')+Math.floor(s%60)}
+
+function updateNP(){
+  if(currentSongIndex<0)return;const s=songs[currentSongIndex];
+  $('nowPlayingTitle').textContent=s.title;
+  $('nowPlayingArtist').textContent=s.artist||'Unknown';
+  const th=$('nowPlayingThumb');th.textContent='🎵';loadNPT(s,th);
+  $('btnLyricsTiming').style.display=(s.lyrics&&s.lyrics.trim())?'':'none';
+}
+async function loadNPT(s,el){
+  let u=null;
+  try{
+    if(s.imageSource==='local'){const d=await dbGet('imageData',s.id);if(d&&d.buffer)u=URL.createObjectURL(new Blob([d.buffer],{type:d.type||'image/jpeg'}))}
+    else if(s.imageSource==='url'&&s.imageUrl)u=s.imageUrl;
+  }catch(e){}
+  if(u)setImgSafe(el,u);
+}
+
+/* ═══ MediaSession API ═══ */
+function updateMediaSession(){
+  if(!('mediaSession' in navigator)||currentSongIndex<0)return;
+  const s=songs[currentSongIndex];
+  const artwork=[];
+  if(s.imageSource==='url'&&s.imageUrl){artwork.push({src:s.imageUrl,sizes:'512x512',type:'image/jpeg'})}
+  try{
+    navigator.mediaSession.metadata=new MediaMetadata({title:s.title,artist:s.artist||'Unknown',album:'ももプレイヤー',artwork:artwork});
+    navigator.mediaSession.setActionHandler('play',()=>togglePlay());
+    navigator.mediaSession.setActionHandler('pause',()=>togglePlay());
+    navigator.mediaSession.setActionHandler('previoustrack',()=>prevSong());
+    navigator.mediaSession.setActionHandler('nexttrack',()=>nextSong());
+    navigator.mediaSession.setActionHandler('seekbackward',()=>rewind5());
+    navigator.mediaSession.setActionHandler('seekforward',()=>forward5());
+  }catch(e){}
+}
+
+/* ═══ Keyboard Shortcuts ═══ */
+document.addEventListener('keydown',function(e){
+  if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;
+  switch(e.code){
+    case'Space':e.preventDefault();togglePlay();break;
+    case'ArrowLeft':e.preventDefault();rewind5();break;
+    case'ArrowRight':e.preventDefault();forward5();break;
+    case'ArrowUp':e.preventDefault();adjustVolume(0.05);break;
+    case'ArrowDown':e.preventDefault();adjustVolume(-0.05);break;
+    case'KeyN':nextSong();break;
+    case'KeyP':prevSong();break;
+  }
+});
+
+/* ═══ Spectrum (optimized canvas resize) ═══ */
+function initAC(){
+  if(audioContext)return;
+  try{audioContext=new(window.AudioContext||window.webkitAudioContext)();analyser=audioContext.createAnalyser();analyser.fftSize=256;analyser.smoothingTimeConstant=.82;sourceNode=audioContext.createMediaElementSource(audio);sourceNode.connect(analyser);analyser.connect(audioContext.destination)}catch(e){}
+}
+function startSpectrum(){
+  if(!analyser)return;
+  const cv=$('spectrumCanvas'),cx=cv.getContext('2d'),bl=analyser.frequencyBinCount,da=new Uint8Array(bl);
+  let lastW=0,lastH=0;
+  function draw(){
+    if(!isPlaying){animFrameId=null;return}animFrameId=requestAnimationFrame(draw);
+    analyser.getByteFrequencyData(da);
+    const nw=cv.offsetWidth*(devicePixelRatio||1),nh=cv.offsetHeight*(devicePixelRatio||1);
+    if(nw!==lastW||nh!==lastH){cv.width=nw;cv.height=nh;lastW=nw;lastH=nh}
+    const w=lastW,h=lastH;
+    cx.clearRect(0,0,w,h);const bc=Math.min(bl,64),bw=w/bc;
+    const cs=getComputedStyle(document.documentElement);
+    const g=cx.createLinearGradient(0,h,0,0);
+    g.addColorStop(0,cs.getPropertyValue('--c400').trim()+'33');
+    g.addColorStop(.5,cs.getPropertyValue('--c500').trim()+'77');
+    g.addColorStop(1,cs.getPropertyValue('--c600').trim()+'99');
+    cx.fillStyle=g;
+    for(let i=0;i<bc;i++){const bh=da[i]/255*h*.88;cx.beginPath();cx.roundRect(i*bw+1,h-bh,bw-2,bh,[4,4,0,0]);cx.fill()}
+  }
+  if(animFrameId)cancelAnimationFrame(animFrameId);draw();
+}
+if(!CanvasRenderingContext2D.prototype.roundRect){CanvasRenderingContext2D.prototype.roundRect=function(x,y,w,h,r){const rd=Array.isArray(r)?r[0]||0:r||0;this.moveTo(x+rd,y);this.lineTo(x+w-rd,y);this.quadraticCurveTo(x+w,y,x+w,y+rd);this.lineTo(x+w,y+h);this.lineTo(x,y+h);this.lineTo(x,y+rd);this.quadraticCurveTo(x,y,x+rd,y);this.closePath()}}
+
+/* ═══ Lyrics ═══ */
+function renderLyrics(){
+  const p=$('lyricsPanel'),c=$('lyricsContent');
+  if(currentSongIndex<0){p.classList.add('hidden');return}
+  const s=songs[currentSongIndex];if(!s.lyrics||!s.lyrics.trim()){p.classList.add('hidden');return}
+  p.classList.remove('hidden');const ls=s.lyrics.split('\n').filter(l=>l.trim()),ts=s.lyricsTimings||[];
+  c.innerHTML=ls.map((l,i)=>{const t=ts[i];return`<div class="lyrics-line anim-in" style="animation-delay:${i*.03}s" data-line="${i}" onclick="seekLyric(${i})">${t!=null?`<span class="time-badge">${fmtT(t)}</span>`:''}${escH(l)}</div>`}).join('');
+}
+function highlightLyrics(time){
+  if(currentSongIndex<0)return;const s=songs[currentSongIndex];if(!s.lyrics||!s.lyricsTimings||!s.lyricsTimings.length)return;
+  let ai=-1;for(let i=s.lyricsTimings.length-1;i>=0;i--){if(s.lyricsTimings[i]!=null&&time>=s.lyricsTimings[i]){ai=i;break}}
+  document.querySelectorAll('#lyricsContent .lyrics-line').forEach((el,i)=>el.classList.toggle('active',i===ai));
+  if(ai>=0){const el=document.querySelector(`#lyricsContent .lyrics-line[data-line="${ai}"]`);if(el)el.scrollIntoView({behavior:'smooth',block:'center'})}
+}
+function seekLyric(i){if(currentSongIndex<0)return;const t=(songs[currentSongIndex].lyricsTimings||[])[i];if(t!=null)audio.currentTime=t}
+
+/* ═══ Timing ═══ */
+function openLyricsTimingModal(){
+  if(currentSongIndex<0)return;const s=songs[currentSongIndex];if(!s.lyrics)return;
+  const ls=s.lyrics.split('\n').filter(l=>l.trim());
+  timingData=ls.map((t,i)=>({text:t,time:(s.lyricsTimings||[])[i]??null}));timingCurLine=0;
+  renderTimingLines();openModal('timingModal');
+}
+function renderTimingLines(){
+  $('timingLines').innerHTML=timingData.map((d,i)=>`
+    <div class="timing-line ${i===timingCurLine?'current':''}" data-tidx="${i}">
+      <button onclick="setTL(${i})">⏱</button>
+      <span class="text">${escH(d.text)}</span>
+      <span class="time">${d.time!=null?fmtT(d.time):'--:--'}</span>
+      <button onclick="clrT(${i})">✕</button>
+    </div>`).join('');
+}
+function setTL(i){timingData[i].time=audio.currentTime;timingCurLine=Math.min(i+1,timingData.length-1);renderTimingLines();const el=document.querySelector(`.timing-line[data-tidx="${timingCurLine}"]`);if(el)el.scrollIntoView({behavior:'smooth',block:'center'})}
+function clrT(i){timingData[i].time=null;renderTimingLines()}
+function clearAllTimings(){if(!confirm('全てのタイミングをクリア？'))return;timingData.forEach(d=>d.time=null);timingCurLine=0;renderTimingLines()}
+function tRew(n){audio.currentTime=Math.max(0,audio.currentTime-n)}
+async function saveTimings(){if(currentSongIndex<0)return;songs[currentSongIndex].lyricsTimings=timingData.map(d=>d.time);await dbPut('songs',songs[currentSongIndex]);renderLyrics();closeModal('timingModal');showToast('タイミングを保存しました')}
+
+/* ═══ Modals ═══ */
+function openModal(id){$(id).classList.add('open')}
+function closeModal(id){$(id).classList.remove('open')}
+
+function openAddModal(){
+  pendingAudioBuf=null;pendingImgBuf=null;pendingImgType=null;
+  ['songTitle','songArtist','songLyrics','audioUrl','imageUrl'].forEach(id=>$(id).value='');
+  ['audioFileInput','imageFileInput'].forEach(id=>$(id).value='');
+  $('audioDrop').innerHTML='<div class="icon">🎵</div><div class="label">タップしてMP3を選択</div><div class="sublabel">またはクラウドURLを下に入力</div>';
+  $('imageDrop').innerHTML='<div class="icon">🖼</div><div class="label">タップして画像を選択</div><div class="sublabel">またはクラウドURLを下に入力</div>';
+  openModal('addModal');
+}
+function openEditModal(id){
+  const s=songs.find(x=>x.id===id);if(!s)return;pendingImgBuf=null;pendingImgType=null;
+  $('editSongId').value=id;$('editTitle').value=s.title;$('editArtist').value=s.artist||'';
+  $('editLyrics').value=s.lyrics||'';$('editImageUrl').value=s.imageUrl||'';$('editImageInput').value='';
+  $('editImageDrop').innerHTML='<div class="icon">🖼</div><div class="label">タップして画像を選択</div>';
+  openModal('editModal');
+}
+function openSettingsModal(){showDBStatus();openModal('settingsModal')}
+
+['addModal','editModal','timingModal','settingsModal'].forEach(id=>{
+  $(id).addEventListener('click',function(e){if(e.target===this)closeModal(id)});
+});
+
+/* ═══ DB Cleanup ═══ */
+async function cleanupDB(){
+  const si=new Set(songs.map(s=>s.id));let c=0;
+  for(const k of await dbKeys('audioData')){if(!si.has(k)){await dbDel('audioData',k);c++}}
+  for(const k of await dbKeys('imageData')){if(!si.has(k)){await dbDel('imageData',k);c++}}
+  showToast(`ゴミ掃除完了: ${c}件削除`);showDBStatus();
+}
+async function deleteAllSongs(){
+  if(!confirm('全曲を削除しますか？'))return;
+  audio.pause();isPlaying=false;currentSongIndex=-1;
+  $('playerBar').classList.remove('visible');$('lyricsPanel').classList.add('hidden');
+  for(const[id,url] of thumbUrls){URL.revokeObjectURL(url)}thumbUrls.clear();
+  for(const s of songs){await dbDel('songs',s.id);await dbDel('audioData',s.id).catch(()=>{});await dbDel('imageData',s.id).catch(()=>{})}
+  songs=[];renderSongList();closeModal('settingsModal');showToast('全曲を削除しました');
+}
+async function showDBStatus(){
+  try{
+    const ak=await dbKeys('audioData'),ik=await dbKeys('imageData'),si=new Set(songs.map(s=>s.id));
+    let est='';if(navigator.storage&&navigator.storage.estimate){const e=await navigator.storage.estimate();est=`<br>ストレージ: ${(e.usage/1048576).toFixed(1)}MB / ${(e.quota/1048576).toFixed(0)}MB`}
+    $('dbStatus').innerHTML=`曲数: ${songs.length} ｜ 音声: ${ak.length} ｜ 画像: ${ik.length}<br>孤立: 音声${ak.filter(k=>!si.has(k)).length} / 画像${ik.filter(k=>!si.has(k)).length}`+est;
+  }catch(e){$('dbStatus').textContent='取得失敗'}
+}
+
+/* ═══ Init ═══ */
+async function init(){
+  buildThemeGrid();loadSavedTheme();loadPlaybackSettings();
+  try{await openDB();songs=(await dbAll('songs')).sort((a,b)=>(a.order??0)-(b.order??0));renderSongList();setupiOS()}
+  catch(e){console.error(e);showToast('DB初期化に失敗しました',4000)}
+  if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{})}
+}
+init();
+</script>
+</body>
+</html>

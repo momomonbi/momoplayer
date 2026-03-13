@@ -1,0 +1,17 @@
+{
+  "name": "ももプレイヤー",
+  "short_name": "ももプレイヤー",
+  "description": "音楽展示即売会プレイヤー",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#fff0f6",
+  "theme_color": "#fef1f6",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍑</text></svg>",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
