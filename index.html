@@ -443,6 +443,36 @@ textarea.form-input{min-height:120px;resize:vertical}
 @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
 .empty-state p{color:var(--text-secondary);font-size:.86rem;line-height:1.8}
 
+/* ═══════ Search ═══════ */
+.search-wrap{
+  margin-bottom:14px;position:relative;
+  animation:fadeSlideUp .7s var(--ease-out) .15s both;
+}
+.search-input{
+  width:100%;padding:11px 14px 11px 38px;border:1px solid var(--c200);
+  border-radius:var(--radius-sm);font-family:inherit;font-size:.86rem;
+  background:var(--glass-bg);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  min-height:44px;transition:border-color .3s,box-shadow .3s;
+}
+.search-input:focus{outline:none;border-color:var(--c400);box-shadow:0 0 0 3px rgba(var(--orb-r),var(--orb-g),var(--orb-b),.12)}
+.search-icon{position:absolute;left:13px;top:50%;transform:translateY(-50%);font-size:.9rem;pointer-events:none;color:var(--text-secondary)}
+.search-clear{
+  position:absolute;right:8px;top:50%;transform:translateY(-50%);
+  width:28px;height:28px;border:none;border-radius:50%;background:rgba(0,0,0,.06);
+  cursor:pointer;font-size:.75rem;display:none;align-items:center;justify-content:center;
+  transition:transform .2s var(--ease-spring),background .2s;
+}
+.search-clear:active{transform:translateY(-50%) scale(.85)}
+.search-clear.visible{display:flex}
+.search-no-results{text-align:center;padding:28px 16px;color:var(--text-secondary);font-size:.86rem}
+
+/* ═══════ Storage Warning ═══════ */
+.storage-warning{
+  padding:10px 14px;border-radius:var(--radius-sm);margin-bottom:14px;
+  background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);
+  font-size:.78rem;color:#92400e;display:flex;align-items:center;gap:8px;
+}
+
 /* ═══════ Utils ═══════ */
 .mt-8{margin-top:8px}.mt-16{margin-top:16px}
 .hidden{display:none!important}
@@ -471,6 +501,14 @@ textarea.form-input{min-height:120px;resize:vertical}
     <button class="btn btn-primary" onclick="openAddModal()" style="flex:1">＋ 曲を追加</button>
     <button class="btn btn-secondary" onclick="openSettingsModal()">⚙</button>
   </div>
+
+  <div class="search-wrap" id="searchWrap" style="display:none">
+    <span class="search-icon">🔍</span>
+    <input type="text" class="search-input" id="searchInput" placeholder="曲名・アーティストで検索">
+    <button class="search-clear" id="searchClear" onclick="clearSearch()">✕</button>
+  </div>
+
+  <div id="storageWarning" class="storage-warning hidden"></div>
 
   <div id="songList" class="song-list"></div>
 
@@ -683,6 +721,81 @@ let pendingAudioBuf=null,pendingImgBuf=null,pendingImgType=null;
 let timingData=[],timingCurLine=0;
 const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 
+/* ═══ Incremental Rendering & Search ═══ */
+const RENDER_BATCH=30;
+let renderedCount=0,searchQuery='',filteredSongs=null;
+let thumbObserver=null;
+
+function getDisplaySongs(){return filteredSongs||songs}
+
+/* Search */
+$('searchInput').addEventListener('input',function(){
+  searchQuery=this.value.trim().toLowerCase();
+  $('searchClear').classList.toggle('visible',!!searchQuery);
+  if(searchQuery){
+    filteredSongs=songs.filter(s=>s.title.toLowerCase().includes(searchQuery)||(s.artist||'').toLowerCase().includes(searchQuery));
+  }else{filteredSongs=null}
+  renderSongList();
+});
+function clearSearch(){$('searchInput').value='';searchQuery='';filteredSongs=null;$('searchClear').classList.remove('visible');renderSongList()}
+
+/* Intersection Observer for lazy thumbnail loading */
+function initThumbObserver(){
+  if(thumbObserver)thumbObserver.disconnect();
+  thumbObserver=new IntersectionObserver((entries)=>{
+    entries.forEach(e=>{
+      if(e.isIntersecting){
+        const sid=e.target.dataset.songId;
+        if(sid){const song=songs.find(s=>s.id===sid);if(song)loadThumb(song)}
+        thumbObserver.unobserve(e.target);
+      }
+    });
+  },{rootMargin:'200px'});
+}
+
+/* Scroll-based incremental rendering */
+function onSongListScroll(){
+  const ds=getDisplaySongs();
+  if(renderedCount>=ds.length)return;
+  const scrollBottom=document.documentElement.scrollHeight-window.scrollY-window.innerHeight;
+  if(scrollBottom<400)appendSongBatch();
+}
+
+function appendSongBatch(){
+  const ds=getDisplaySongs(),list=$('songList');
+  const end=Math.min(renderedCount+RENDER_BATCH,ds.length);
+  for(let i=renderedCount;i<end;i++){
+    list.appendChild(createSongCard(ds[i],i));
+  }
+  renderedCount=end;
+}
+
+/* Fisher-Yates shuffle for unbiased playback */
+let shuffledOrder=[],shuffledPos=-1;
+function buildShuffledOrder(){
+  shuffledOrder=Array.from({length:songs.length},(_,i)=>i);
+  for(let i=shuffledOrder.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [shuffledOrder[i],shuffledOrder[j]]=[shuffledOrder[j],shuffledOrder[i]];
+  }
+  shuffledPos=currentSongIndex>=0?shuffledOrder.indexOf(currentSongIndex):-1;
+}
+
+/* Storage capacity monitoring */
+async function checkStorageCapacity(){
+  if(!navigator.storage||!navigator.storage.estimate)return;
+  try{
+    const e=await navigator.storage.estimate();
+    const usedMB=e.usage/1048576,quotaMB=e.quota/1048576;
+    const pct=e.usage/e.quota*100;
+    const w=$('storageWarning');
+    if(pct>80){
+      w.innerHTML=`⚠️ ストレージ使用量: ${usedMB.toFixed(1)}MB / ${quotaMB.toFixed(0)}MB (${pct.toFixed(0)}%)。容量が少なくなっています。クラウドURLの利用を検討してください。`;
+      w.classList.remove('hidden');
+    }else{w.classList.add('hidden')}
+  }catch(e){}
+}
+
 /* ═══ Spectrum Types ═══ */
 let spectrumType=0;
 const SPECTRUM_TYPES=['bars','wave','radial','mirror','particles'];
@@ -706,6 +819,7 @@ function toggleRepeat(){
 
 function toggleShuffle(){
   shuffleMode=!shuffleMode;
+  if(shuffleMode)buildShuffledOrder();
   $('shuffleBtn').classList.toggle('active-mode',shuffleMode);
   try{localStorage.setItem('momo_shuffle',String(shuffleMode))}catch(e){}
   showToast(shuffleMode?'シャッフル：オン':'シャッフル：オフ');
@@ -723,7 +837,7 @@ function loadPlaybackSettings(){
     const r=localStorage.getItem('momo_repeat');
     if(r&&['off','all','one'].includes(r)){repeatMode=r;const btn=$('repeatBtn');btn.textContent=r==='one'?'🔂':'🔁';btn.classList.toggle('active-mode',r!=='off')}
     const s=localStorage.getItem('momo_shuffle');
-    if(s==='true'){shuffleMode=true;$('shuffleBtn').classList.add('active-mode')}
+    if(s==='true'){shuffleMode=true;$('shuffleBtn').classList.add('active-mode');buildShuffledOrder()}
     const sp=localStorage.getItem('momo_spectrum');
     if(sp!=null){spectrumType=parseInt(sp)%SPECTRUM_TYPES.length;$('spectrumTypeBtn').textContent=SPECTRUM_ICONS[spectrumType]}
   }catch(e){}
@@ -806,6 +920,7 @@ async function saveSong(){
     if(pendingAudioBuf)await dbPut('audioData',{id,buffer:pendingAudioBuf});
     if(pendingImgBuf)await dbPut('imageData',{id,buffer:pendingImgBuf,type:pendingImgType});
     songs.push(song);renderSongList();closeModal('addModal');showToast('曲を追加しました');
+    checkStorageCapacity();
   }catch(err){showToast('保存に失敗: '+err.message,4000)}
 }
 
@@ -851,22 +966,53 @@ function revokeThumbUrl(id){
 }
 
 /* ═══ Render ═══ */
+function createSongCard(s,displayIndex){
+  const realIdx=songs.indexOf(s);
+  const card=document.createElement('div');
+  card.className='song-card glass anim-in'+(currentSongIndex===realIdx?' playing':'');
+  card.style.animationDelay=Math.min(displayIndex,20)*0.05+'s';
+  card.draggable=!searchQuery;
+  card.dataset.index=realIdx;
+  card.onclick=()=>playSong(realIdx);
+  if(!searchQuery){
+    card.ondragstart=e=>onDS(e,realIdx);
+    card.ondragover=e=>onDO(e);
+    card.ondrop=e=>onDr(e,realIdx);
+    card.ondragend=e=>onDE(e);
+  }
+  const thumb=document.createElement('div');
+  thumb.className='song-thumb';
+  thumb.id='thumb_'+s.id;
+  thumb.dataset.songId=s.id;
+  thumb.textContent='🎵';
+  const info=document.createElement('div');
+  info.className='song-info';
+  info.innerHTML='<div class="song-title">'+escH(s.title)+'</div><div class="song-artist">'+escH(s.artist||'Unknown')+'</div>';
+  const acts=document.createElement('div');
+  acts.className='song-actions';
+  acts.onclick=e=>e.stopPropagation();
+  acts.innerHTML='<button onclick="openEditModal(\''+s.id+'\')">✏️</button><button onclick="deleteSong(\''+s.id+'\')">🗑</button>';
+  card.appendChild(thumb);card.appendChild(info);card.appendChild(acts);
+  if(thumbObserver)thumbObserver.observe(thumb);
+  return card;
+}
+
 function renderSongList(){
-  const list=$('songList'),empty=$('emptyState');
+  const list=$('songList'),empty=$('emptyState'),sw=$('searchWrap');
+  sw.style.display=songs.length?'':'none';
   if(!songs.length){list.innerHTML='';empty.style.display='';return}
   empty.style.display='none';
-  list.innerHTML=songs.map((s,i)=>`
-    <div class="song-card glass anim-in ${currentSongIndex===i?'playing':''}"
-      style="animation-delay:${i*0.05}s" draggable="true" data-index="${i}"
-      onclick="playSong(${i})" ondragstart="onDS(event,${i})" ondragover="onDO(event)" ondrop="onDr(event,${i})" ondragend="onDE(event)">
-      <div class="song-thumb" id="thumb_${s.id}">🎵</div>
-      <div class="song-info"><div class="song-title">${escH(s.title)}</div><div class="song-artist">${escH(s.artist||'Unknown')}</div></div>
-      <div class="song-actions" onclick="event.stopPropagation()">
-        <button onclick="openEditModal('${s.id}')">✏️</button>
-        <button onclick="deleteSong('${s.id}')">🗑</button>
-      </div>
-    </div>`).join('');
-  songs.forEach(s=>loadThumb(s));
+  const ds=getDisplaySongs();
+  if(searchQuery&&!ds.length){
+    list.innerHTML='<div class="search-no-results">「'+escH(searchQuery)+'」に一致する曲はありません</div>';
+    renderedCount=0;return;
+  }
+  list.innerHTML='';
+  initThumbObserver();
+  renderedCount=0;
+  const end=Math.min(RENDER_BATCH,ds.length);
+  for(let i=0;i<end;i++){list.appendChild(createSongCard(ds[i],i))}
+  renderedCount=end;
 }
 
 async function loadThumb(song){
@@ -896,11 +1042,13 @@ function onDr(e,ti){
 }
 function onDE(e){const c=e.target.closest('.song-card');if(c)c.classList.remove('dragging');document.querySelectorAll('.drag-over').forEach(el=>el.classList.remove('drag-over'));dragIdx=-1}
 
-/* Batch saveSongOrder — single transaction */
+/* Batch saveSongOrder — only write changed orders */
 async function saveSongOrder(){
   const tx=db.transaction('songs','readwrite');
   const store=tx.objectStore('songs');
-  for(let i=0;i<songs.length;i++){songs[i].order=i;store.put(songs[i])}
+  for(let i=0;i<songs.length;i++){
+    if(songs[i].order!==i){songs[i].order=i;store.put(songs[i])}
+  }
   return new Promise((res,rej)=>{tx.oncomplete=res;tx.onerror=e=>rej(e.target.error)});
 }
 
@@ -955,8 +1103,9 @@ function togglePlay(){
 function prevSong(){
   if(!songs.length)return;
   if(shuffleMode){
-    let next;do{next=Math.floor(Math.random()*songs.length)}while(next===currentSongIndex&&songs.length>1);
-    playSong(next);
+    if(!shuffledOrder.length||shuffledOrder.length!==songs.length)buildShuffledOrder();
+    shuffledPos--;if(shuffledPos<0)shuffledPos=shuffledOrder.length-1;
+    playSong(shuffledOrder[shuffledPos]);
   }else{
     playSong(currentSongIndex<=0?songs.length-1:currentSongIndex-1);
   }
@@ -966,8 +1115,13 @@ function nextSong(){
   if(!songs.length)return;
   if(repeatMode==='one'){audio.currentTime=0;audio.play().catch(()=>{});return}
   if(shuffleMode){
-    let next;do{next=Math.floor(Math.random()*songs.length)}while(next===currentSongIndex&&songs.length>1);
-    playSong(next);
+    if(!shuffledOrder.length||shuffledOrder.length!==songs.length)buildShuffledOrder();
+    shuffledPos++;
+    if(shuffledPos>=shuffledOrder.length){
+      if(repeatMode==='all'){buildShuffledOrder();shuffledPos=0}
+      else{isPlaying=false;$('playBtn').textContent='▶';$('playBtn').classList.remove('is-playing');return}
+    }
+    playSong(shuffledOrder[shuffledPos]);
   }else if(currentSongIndex>=songs.length-1){
     if(repeatMode==='all')playSong(0);
     else{isPlaying=false;$('playBtn').textContent='▶';$('playBtn').classList.remove('is-playing')}
@@ -1287,9 +1441,10 @@ async function showDBStatus(){
 /* ═══ Init ═══ */
 async function init(){
   buildThemeGrid();loadSavedTheme();loadPlaybackSettings();
-  try{await openDB();songs=(await dbAll('songs')).sort((a,b)=>(a.order??0)-(b.order??0));renderSongList();setupiOS()}
+  try{await openDB();songs=(await dbAll('songs')).sort((a,b)=>(a.order??0)-(b.order??0));renderSongList();setupiOS();checkStorageCapacity()}
   catch(e){console.error(e);showToast('DB初期化に失敗しました',4000)}
   if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{})}
+  window.addEventListener('scroll',onSongListScroll,{passive:true});
 }
 init();
 </script>
