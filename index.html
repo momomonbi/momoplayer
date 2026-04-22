@@ -65,7 +65,7 @@ body::after{
 }
 
 /* ═══════ Layout ═══════ */
-#app{position:relative;z-index:1;max-width:500px;margin:0 auto;padding:20px 14px 160px}
+#app{position:relative;z-index:1;max-width:500px;margin:0 auto;padding:20px 14px calc(var(--player-h,20px) + 20px)}
 
 /* ═══════ Stagger Load Animation ═══════ */
 @keyframes fadeSlideUp{
@@ -1399,13 +1399,23 @@ async function migrateRemoveDeviceRefs(){
   }
   if(purged)showToast(`端末フォルダ参照の曲${purged}件を整理しました`,3000);
 }
+function trackPlayerHeight(){
+  const bar=$('playerBar');if(!bar)return;
+  const apply=()=>{
+    const h=bar.classList.contains('visible')?bar.offsetHeight:0;
+    document.documentElement.style.setProperty('--player-h',h+'px');
+  };
+  if(window.ResizeObserver)new ResizeObserver(apply).observe(bar);
+  new MutationObserver(apply).observe(bar,{attributes:true,attributeFilter:['class','style']});
+  window.addEventListener('resize',apply);apply();
+}
 async function init(){
   buildThemeGrid();loadSavedTheme();loadPlaybackSettings();
   try{
     await openDB();
     songs=(await dbAll('songs')).sort((a,b)=>(a.order??0)-(b.order??0));
     await migrateRemoveDeviceRefs();
-    renderSongList();setupiOS();
+    renderSongList();setupiOS();trackPlayerHeight();
   }
   catch(e){console.error(e);showToast('DB初期化に失敗しました',4000)}
   if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{})}
