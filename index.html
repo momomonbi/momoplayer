@@ -469,7 +469,7 @@ textarea.form-input{min-height:120px;resize:vertical}
 
   <div class="toolbar">
     <button class="btn btn-primary" onclick="openAddModal()" style="flex:1">＋ 曲を追加</button>
-    <button class="btn btn-secondary" onclick="$('folderInput').click()" title="フォルダから一括追加">📁</button>
+    <button class="btn btn-secondary" onclick="importFolder()" title="フォルダから一括追加">📁</button>
     <button class="btn btn-secondary" onclick="openSettingsModal()">⚙</button>
   </div>
   <input type="file" id="folderInput" webkitdirectory directory multiple accept="audio/*,.mp3,.m4a,.aac,.ogg,.wav,.flac,.opus,.wma,.aiff,.mp4" style="display:none">
@@ -678,7 +678,7 @@ function loadSavedTheme(){
 }
 
 /* ═══ State ═══ */
-let db=null;const DB_NAME='MomoPlayerDB',DB_VERSION=2;
+let db=null;const DB_NAME='MomoPlayerDB',DB_VERSION=3;
 let songs=[],currentSongIndex=-1,isPlaying=false;
 let audio=new Audio(),audioContext=null,analyser=null,sourceNode=null,animFrameId=null;
 let pendingAudioBuf=null,pendingAudioType=null,pendingImgBuf=null,pendingImgType=null;
@@ -732,7 +732,7 @@ function loadPlaybackSettings(){
 }
 
 /* ═══ IndexedDB ═══ */
-function openDB(){return new Promise((res,rej)=>{const r=indexedDB.open(DB_NAME,DB_VERSION);r.onupgradeneeded=e=>{const d=e.target.result;['songs','audioData','imageData'].forEach(n=>{if(!d.objectStoreNames.contains(n))d.createObjectStore(n,{keyPath:'id'})})};r.onsuccess=e=>{db=e.target.result;res(db)};r.onerror=e=>rej(e.target.error)})}
+function openDB(){return new Promise((res,rej)=>{const r=indexedDB.open(DB_NAME,DB_VERSION);r.onupgradeneeded=e=>{const d=e.target.result;['songs','audioData','imageData','fileHandles'].forEach(n=>{if(!d.objectStoreNames.contains(n))d.createObjectStore(n,{keyPath:'id'})})};r.onsuccess=e=>{db=e.target.result;res(db)};r.onerror=e=>rej(e.target.error)})}
 function dbPut(s,d){return new Promise((r,j)=>{const t=db.transaction(s,'readwrite');t.objectStore(s).put(d);t.oncomplete=()=>r();t.onerror=e=>j(e.target.error)})}
 function dbGet(s,id){return new Promise((r,j)=>{const t=db.transaction(s,'readonly');const q=t.objectStore(s).get(id);q.onsuccess=()=>r(q.result);q.onerror=e=>j(e.target.error)})}
 function dbDel(s,id){return new Promise((r,j)=>{const t=db.transaction(s,'readwrite');t.objectStore(s).delete(id);t.oncomplete=()=>r();t.onerror=e=>j(e.target.error)})}
@@ -767,6 +767,43 @@ $('audioFileInput').addEventListener('change',async function(e){
   $('audioDrop').innerHTML=`<div class="loaded">\u2705 ${escH(f.name)}</div>`;
   const t=$('songTitle');if(!t.value.trim())t.value=fname2t(f.name);
 });
+function importFolder(){
+  if(window.showDirectoryPicker&&window.isSecureContext){importFolderReference()}
+  else{$('folderInput').click()}
+}
+async function*walkAudioFiles(dir,path=''){
+  for await(const entry of dir.values()){
+    const p=path?path+'/'+entry.name:entry.name;
+    if(entry.kind==='file'){
+      const m=entry.name.toLowerCase().match(/\.([a-z0-9]+)$/);
+      if(m&&AUDIO_EXT_MIME[m[1]])yield{handle:entry,name:entry.name,path:p,mime:AUDIO_EXT_MIME[m[1]]};
+    }else if(entry.kind==='directory'){yield*walkAudioFiles(entry,p)}
+  }
+}
+async function importFolderReference(){
+  let dir;try{dir=await window.showDirectoryPicker({mode:'read'})}catch(e){return}
+  showToast('フォルダを解析中...',2000);
+  const entries=[];
+  try{for await(const e of walkAudioFiles(dir))entries.push(e)}
+  catch(err){return showToast('フォルダの読み取りに失敗: '+err.message,4000)}
+  if(!entries.length)return showToast('音声ファイルが見つかりませんでした');
+  entries.sort((a,b)=>a.path.localeCompare(b.path,undefined,{numeric:true}));
+  let added=0,failed=0;
+  for(const e of entries){
+    try{
+      const id=gid();
+      await dbPut('fileHandles',{id,handle:e.handle,path:e.path});
+      const song={id,title:fname2t(e.name),artist:'',lyrics:'',lyricsTimings:[],
+        audioSource:'device',audioUrl:'',audioType:e.mime,
+        imageSource:'none',imageUrl:'',imageType:'',
+        addedAt:Date.now(),order:songs.length};
+      await dbPut('songs',song);
+      songs.push(song);added++;
+    }catch(err){console.error('import failed:',e.name,err);failed++}
+  }
+  renderSongList();
+  showToast(`${added}曲を端末フォルダから参照${failed?`（${failed}件失敗）`:''}`,3000);
+}
 $('folderInput').addEventListener('change',async function(e){
   const files=Array.from(e.target.files||[]);e.target.value='';
   if(!files.length)return;
@@ -856,7 +893,7 @@ async function deleteSong(id){
   if(currentSongIndex===idx){audio.pause();isPlaying=false;currentSongIndex=-1;$('playerBar').classList.remove('visible');$('lyricsPanel').classList.add('hidden')}
   else if(currentSongIndex>idx)currentSongIndex--;
   revokeThumbUrl(id);
-  songs.splice(idx,1);await dbDel('songs',id);await dbDel('audioData',id).catch(()=>{});await dbDel('imageData',id).catch(()=>{});renderSongList();
+  songs.splice(idx,1);await dbDel('songs',id);await dbDel('audioData',id).catch(()=>{});await dbDel('imageData',id).catch(()=>{});await dbDel('fileHandles',id).catch(()=>{});renderSongList();
   showToast('曲を削除しました');
 }
 
@@ -948,6 +985,15 @@ async function playSong(idx){
       const d=await dbGet('audioData',song.id);
       if(!d||!d.buffer){showToast('音声データが見つかりません',3000);return}
       const b=new Blob([d.buffer],{type:song.audioType||d.type||'audio/mpeg'}),u=URL.createObjectURL(b);audio._oUrl=u;audio.src=u;
+    }else if(song.audioSource==='device'){
+      const rec=await dbGet('fileHandles',song.id);
+      if(!rec||!rec.handle){showToast('ファイル参照が見つかりません',3000);return}
+      const h=rec.handle;
+      let perm=await h.queryPermission({mode:'read'});
+      if(perm!=='granted')perm=await h.requestPermission({mode:'read'});
+      if(perm!=='granted'){showToast('ファイルアクセスが許可されませんでした',3000);return}
+      const file=await h.getFile();
+      const u=URL.createObjectURL(file);audio._oUrl=u;audio.src=u;
     }else{
       if(!song.audioUrl){showToast('音声URLが設定されていません',3000);return}
       audio.src=song.audioUrl;
@@ -1293,6 +1339,7 @@ async function cleanupDB(){
   const si=new Set(songs.map(s=>s.id));let c=0;
   for(const k of await dbKeys('audioData')){if(!si.has(k)){await dbDel('audioData',k);c++}}
   for(const k of await dbKeys('imageData')){if(!si.has(k)){await dbDel('imageData',k);c++}}
+  for(const k of await dbKeys('fileHandles')){if(!si.has(k)){await dbDel('fileHandles',k);c++}}
   showToast(`ゴミ掃除完了: ${c}件削除`);showDBStatus();
 }
 async function deleteAllSongs(){
@@ -1300,14 +1347,14 @@ async function deleteAllSongs(){
   audio.pause();isPlaying=false;currentSongIndex=-1;
   $('playerBar').classList.remove('visible');$('lyricsPanel').classList.add('hidden');
   for(const[id,url] of thumbUrls){URL.revokeObjectURL(url)}thumbUrls.clear();
-  for(const s of songs){await dbDel('songs',s.id);await dbDel('audioData',s.id).catch(()=>{});await dbDel('imageData',s.id).catch(()=>{})}
+  for(const s of songs){await dbDel('songs',s.id);await dbDel('audioData',s.id).catch(()=>{});await dbDel('imageData',s.id).catch(()=>{});await dbDel('fileHandles',s.id).catch(()=>{})}
   songs=[];renderSongList();closeModal('settingsModal');showToast('全曲を削除しました');
 }
 async function showDBStatus(){
   try{
-    const ak=await dbKeys('audioData'),ik=await dbKeys('imageData'),si=new Set(songs.map(s=>s.id));
+    const ak=await dbKeys('audioData'),ik=await dbKeys('imageData'),fk=await dbKeys('fileHandles'),si=new Set(songs.map(s=>s.id));
     let est='';if(navigator.storage&&navigator.storage.estimate){const e=await navigator.storage.estimate();est=`<br>ストレージ: ${(e.usage/1048576).toFixed(1)}MB / ${(e.quota/1048576).toFixed(0)}MB`}
-    $('dbStatus').innerHTML=`曲数: ${songs.length} ｜ 音声: ${ak.length} ｜ 画像: ${ik.length}<br>孤立: 音声${ak.filter(k=>!si.has(k)).length} / 画像${ik.filter(k=>!si.has(k)).length}`+est;
+    $('dbStatus').innerHTML=`曲数: ${songs.length} ｜ 音声: ${ak.length} ｜ 画像: ${ik.length} ｜ 端末参照: ${fk.length}<br>孤立: 音声${ak.filter(k=>!si.has(k)).length} / 画像${ik.filter(k=>!si.has(k)).length} / 参照${fk.filter(k=>!si.has(k)).length}`+est;
   }catch(e){$('dbStatus').textContent='取得失敗'}
 }
 
