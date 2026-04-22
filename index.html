@@ -528,7 +528,7 @@ textarea.form-input{min-height:120px;resize:vertical}
       <div class="form-group">
         <label class="form-label">音声ファイル *</label>
         <div class="file-drop" id="audioDrop" onclick="$('audioFileInput').click()">
-          <div class="icon">🎵</div><div class="label">タップしてMP3を選択</div><div class="sublabel">またはクラウドURLを下に入力</div>
+          <div class="icon">🎵</div><div class="label">タップして音声ファイルを選択</div><div class="sublabel">MP3 / WAV / M4A / FLAC などに対応</div>
         </div>
         <input type="file" id="audioFileInput" accept="audio/*,.mp3,.m4a,.aac,.ogg,.wav,.flac,.opus,.wma,.aiff,.mp4" style="display:none">
         <input type="text" class="form-input mt-8" id="audioUrl" placeholder="音声URL（Dropbox等）https://...">
@@ -679,7 +679,7 @@ function loadSavedTheme(){
 let db=null;const DB_NAME='MomoPlayerDB',DB_VERSION=2;
 let songs=[],currentSongIndex=-1,isPlaying=false;
 let audio=new Audio(),audioContext=null,analyser=null,sourceNode=null,animFrameId=null;
-let pendingAudioBuf=null,pendingImgBuf=null,pendingImgType=null;
+let pendingAudioBuf=null,pendingAudioType=null,pendingImgBuf=null,pendingImgType=null;
 let timingData=[],timingCurLine=0;
 const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 
@@ -756,10 +756,12 @@ function isValidUrl(str){
 /* ═══ File ═══ */
 function readBuf(f){return new Promise((r,j)=>{const x=new FileReader();x.onload=()=>r(x.result);x.onerror=()=>j(x.error);x.readAsArrayBuffer(f)})}
 function fname2t(n){return n.replace(/\.[^.]+$/,'')}
+const AUDIO_EXT_MIME={mp3:'audio/mpeg',m4a:'audio/mp4',mp4:'audio/mp4',aac:'audio/aac',ogg:'audio/ogg',opus:'audio/ogg',wav:'audio/wav',wave:'audio/wav',flac:'audio/flac',wma:'audio/x-ms-wma',aiff:'audio/aiff',aif:'audio/aiff'};
+function audioMime(f){if(f.type&&f.type.indexOf('audio/')===0)return f.type;const m=f.name.toLowerCase().match(/\.([a-z0-9]+)$/);return(m&&AUDIO_EXT_MIME[m[1]])||f.type||'audio/mpeg'}
 
 $('audioFileInput').addEventListener('change',async function(e){
   const f=e.target.files[0];if(!f)return;
-  pendingAudioBuf=await readBuf(f);
+  pendingAudioBuf=await readBuf(f);pendingAudioType=audioMime(f);
   $('audioDrop').innerHTML=`<div class="loaded">\u2705 ${escH(f.name)}</div>`;
   const t=$('songTitle');if(!t.value.trim())t.value=fname2t(f.name);
 });
@@ -782,7 +784,7 @@ $('editLyricsFile').addEventListener('change',function(e){const f=e.target.files
   el.addEventListener('dragleave',()=>el.classList.remove('dragover'));
   el.addEventListener('drop',async e=>{
     e.preventDefault();el.classList.remove('dragover');const f=e.dataTransfer.files[0];if(!f)return;
-    if(id.includes('audio')){pendingAudioBuf=await readBuf(f);el.innerHTML=`<div class="loaded">\u2705 ${escH(f.name)}</div>`;const t=$('songTitle');if(!t.value.trim())t.value=fname2t(f.name)}
+    if(id.includes('audio')){pendingAudioBuf=await readBuf(f);pendingAudioType=audioMime(f);el.innerHTML=`<div class="loaded">\u2705 ${escH(f.name)}</div>`;const t=$('songTitle');if(!t.value.trim())t.value=fname2t(f.name)}
     else{pendingImgBuf=await readBuf(f);pendingImgType=f.type;el.innerHTML=`<div class="loaded">\u2705 ${escH(f.name)}</div>`}
   });
 });
@@ -798,12 +800,12 @@ async function saveSong(){
   if(!pendingAudioBuf&&aUrl&&!isValidUrl(aUrl))return showToast('有効な音声URLを入力してください');
   if(iUrl&&!isValidUrl(iUrl))return showToast('有効な画像URLを入力してください');
   const id=gid(),song={id,title,artist:artist||'',lyrics:lyrics||'',lyricsTimings:[],
-    audioSource:pendingAudioBuf?'local':'url',audioUrl:aUrl?cloudUrl(aUrl):'',
+    audioSource:pendingAudioBuf?'local':'url',audioUrl:aUrl?cloudUrl(aUrl):'',audioType:pendingAudioType||'',
     imageSource:pendingImgBuf?'local':(iUrl?'url':'none'),imageUrl:iUrl?cloudUrl(iUrl):'',
     imageType:pendingImgType||'',addedAt:Date.now(),order:songs.length};
   try{
     await dbPut('songs',song);
-    if(pendingAudioBuf)await dbPut('audioData',{id,buffer:pendingAudioBuf});
+    if(pendingAudioBuf)await dbPut('audioData',{id,buffer:pendingAudioBuf,type:pendingAudioType||''});
     if(pendingImgBuf)await dbPut('imageData',{id,buffer:pendingImgBuf,type:pendingImgType});
     songs.push(song);renderSongList();closeModal('addModal');showToast('曲を追加しました');
   }catch(err){showToast('保存に失敗: '+err.message,4000)}
@@ -920,7 +922,7 @@ async function playSong(idx){
     if(song.audioSource==='local'){
       const d=await dbGet('audioData',song.id);
       if(!d||!d.buffer){showToast('音声データが見つかりません',3000);return}
-      const b=new Blob([d.buffer],{type:'audio/mpeg'}),u=URL.createObjectURL(b);audio._oUrl=u;audio.src=u;
+      const b=new Blob([d.buffer],{type:song.audioType||d.type||'audio/mpeg'}),u=URL.createObjectURL(b);audio._oUrl=u;audio.src=u;
     }else{
       if(!song.audioUrl){showToast('音声URLが設定されていません',3000);return}
       audio.src=song.audioUrl;
@@ -1241,10 +1243,10 @@ function openModal(id){$(id).classList.add('open')}
 function closeModal(id){$(id).classList.remove('open')}
 
 function openAddModal(){
-  pendingAudioBuf=null;pendingImgBuf=null;pendingImgType=null;
+  pendingAudioBuf=null;pendingAudioType=null;pendingImgBuf=null;pendingImgType=null;
   ['songTitle','songArtist','songLyrics','audioUrl','imageUrl'].forEach(id=>$(id).value='');
   ['audioFileInput','imageFileInput'].forEach(id=>$(id).value='');
-  $('audioDrop').innerHTML='<div class="icon">🎵</div><div class="label">タップしてMP3を選択</div><div class="sublabel">またはクラウドURLを下に入力</div>';
+  $('audioDrop').innerHTML='<div class="icon">🎵</div><div class="label">タップして音声ファイルを選択</div><div class="sublabel">MP3 / WAV / M4A / FLAC などに対応</div>';
   $('imageDrop').innerHTML='<div class="icon">🖼</div><div class="label">タップして画像を選択</div><div class="sublabel">またはクラウドURLを下に入力</div>';
   openModal('addModal');
 }
