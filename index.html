@@ -469,8 +469,10 @@ textarea.form-input{min-height:120px;resize:vertical}
 
   <div class="toolbar">
     <button class="btn btn-primary" onclick="openAddModal()" style="flex:1">＋ 曲を追加</button>
+    <button class="btn btn-secondary" onclick="$('folderInput').click()" title="フォルダから一括追加">📁</button>
     <button class="btn btn-secondary" onclick="openSettingsModal()">⚙</button>
   </div>
+  <input type="file" id="folderInput" webkitdirectory directory multiple accept="audio/*,.mp3,.m4a,.aac,.ogg,.wav,.flac,.opus,.wma,.aiff,.mp4" style="display:none">
 
   <div id="songList" class="song-list"></div>
 
@@ -764,6 +766,29 @@ $('audioFileInput').addEventListener('change',async function(e){
   pendingAudioBuf=await readBuf(f);pendingAudioType=audioMime(f);
   $('audioDrop').innerHTML=`<div class="loaded">\u2705 ${escH(f.name)}</div>`;
   const t=$('songTitle');if(!t.value.trim())t.value=fname2t(f.name);
+});
+$('folderInput').addEventListener('change',async function(e){
+  const files=Array.from(e.target.files||[]);e.target.value='';
+  if(!files.length)return;
+  const audios=files.filter(f=>{const t=audioMime(f);return t&&t.indexOf('audio/')===0});
+  if(!audios.length)return showToast('音声ファイルが見つかりませんでした');
+  audios.sort((a,b)=>(a.webkitRelativePath||a.name).localeCompare(b.webkitRelativePath||b.name,undefined,{numeric:true}));
+  let added=0,failed=0;
+  showToast(`${audios.length}件を読み込み中...`,2000);
+  for(const f of audios){
+    try{
+      const buf=await readBuf(f),mime=audioMime(f),id=gid();
+      const song={id,title:fname2t(f.name),artist:'',lyrics:'',lyricsTimings:[],
+        audioSource:'local',audioUrl:'',audioType:mime,
+        imageSource:'none',imageUrl:'',imageType:'',
+        addedAt:Date.now(),order:songs.length};
+      await dbPut('songs',song);
+      await dbPut('audioData',{id,buffer:buf,type:mime});
+      songs.push(song);added++;
+    }catch(err){console.error('import failed:',f.name,err);failed++}
+  }
+  renderSongList();
+  showToast(`${added}曲を追加しました${failed?`（${failed}件失敗）`:''}`,3000);
 });
 $('imageFileInput').addEventListener('change',async function(e){
   const f=e.target.files[0];if(!f)return;
