@@ -615,6 +615,12 @@ textarea.form-input{min-height:120px;resize:vertical}
         <button class="btn btn-sm btn-secondary" onclick="sortSongs('added')">追加順</button>
       </div>
 
+      <div class="section-label" id="devicePermLabel" style="display:none">📂 端末フォルダ参照</div>
+      <div id="devicePermWrap" style="display:none;margin-bottom:22px">
+        <button class="btn btn-sm btn-primary" onclick="requestAllDirPermissions()">🔓 端末フォルダへのアクセスを許可</button>
+        <div id="devicePermStatus" class="text-sm text-secondary" style="margin-top:6px"></div>
+      </div>
+
       <div class="section-label">🗄 データ管理</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-sm btn-danger" onclick="cleanupDB()">🧹 ゴミ掃除</button>
@@ -1334,7 +1340,38 @@ function openEditModal(id){
   $('editImageDrop').innerHTML='<div class="icon">🖼</div><div class="label">タップして画像を選択</div>';
   openModal('editModal');
 }
-function openSettingsModal(){showDBStatus();openModal('settingsModal')}
+function openSettingsModal(){showDBStatus();refreshDevicePermUI();openModal('settingsModal')}
+async function refreshDevicePermUI(){
+  const wrap=$('devicePermWrap'),label=$('devicePermLabel'),status=$('devicePermStatus');
+  const supported=!!(window.showDirectoryPicker&&window.isSecureContext);
+  let keys=[];try{keys=await dbKeys('dirHandles')}catch(e){}
+  if(!supported||!keys.length){wrap.style.display='none';label.style.display='none';return}
+  wrap.style.display='';label.style.display='';
+  let granted=0,prompt=0,denied=0;
+  for(const k of keys){
+    try{
+      const r=await dbGet('dirHandles',k);if(!r||!r.handle)continue;
+      const p=await r.handle.queryPermission({mode:'read'});
+      if(p==='granted')granted++;else if(p==='denied')denied++;else prompt++;
+    }catch(e){}
+  }
+  status.textContent=`フォルダ ${keys.length}件 ｜ 許可済み ${granted} / 未許可 ${prompt}${denied?` / 拒否 ${denied}`:''}`;
+}
+async function requestAllDirPermissions(){
+  const keys=await dbKeys('dirHandles');
+  if(!keys.length)return showToast('端末参照のフォルダはありません');
+  let ok=0,ng=0;
+  for(const k of keys){
+    try{
+      const r=await dbGet('dirHandles',k);if(!r||!r.handle){ng++;continue}
+      let p=await r.handle.queryPermission({mode:'read'});
+      if(p!=='granted')p=await r.handle.requestPermission({mode:'read'});
+      if(p==='granted')ok++;else ng++;
+    }catch(e){ng++}
+  }
+  showToast(`${ok}/${keys.length}件のフォルダを許可しました${ng?`（${ng}件未許可）`:''}`,3000);
+  refreshDevicePermUI();
+}
 
 ['addModal','editModal','timingModal','settingsModal'].forEach(id=>{
   $(id).addEventListener('click',function(e){if(e.target===this)closeModal(id)});
