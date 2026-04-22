@@ -150,6 +150,8 @@ body::after{
 
 .song-card.dragging{opacity:.4;transform:scale(.95)}
 .song-card.drag-over{border-top:3px solid var(--c400)}
+.song-card.selected{border:2px solid var(--c500);background:var(--c50)}
+.song-check{display:flex;align-items:center;justify-content:center;width:28px;height:28px;font-size:1.2rem;margin-right:6px;flex-shrink:0}
 
 .song-thumb{
   width:54px;height:54px;border-radius:14px;background:var(--c100);flex-shrink:0;
@@ -467,10 +469,17 @@ textarea.form-input{min-height:120px;resize:vertical}
     <p>音楽展示即売会プレイヤー</p>
   </div>
 
-  <div class="toolbar">
+  <div class="toolbar" id="toolbarNormal">
     <button class="btn btn-primary" onclick="openAddModal()" style="flex:1">＋ 曲を追加</button>
     <button class="btn btn-secondary" onclick="$('folderInput').click()" title="フォルダから一括追加">📁</button>
+    <button class="btn btn-secondary" onclick="toggleSelectionMode()" title="選択モード">☑</button>
     <button class="btn btn-secondary" onclick="openSettingsModal()">⚙</button>
+  </div>
+  <div class="toolbar" id="toolbarSelect" style="display:none">
+    <div id="selCount" style="flex:1;font-size:.9rem;color:var(--text-secondary);align-self:center">0件選択</div>
+    <button class="btn btn-sm btn-secondary" onclick="selectAllSongs()">全選択</button>
+    <button class="btn btn-sm btn-danger" onclick="deleteSelectedSongs()">🗑 削除</button>
+    <button class="btn btn-sm btn-secondary" onclick="toggleSelectionMode()">キャンセル</button>
   </div>
   <input type="file" id="folderInput" webkitdirectory directory multiple accept="audio/*,.mp3,.m4a,.aac,.ogg,.wav,.flac,.opus,.wma,.aiff,.mp4" style="display:none">
 
@@ -894,11 +903,58 @@ function revokeThumbUrl(id){
 }
 
 /* ═══ Render ═══ */
+let selectionMode=false;const selectedIds=new Set();
+function toggleSelectionMode(){
+  selectionMode=!selectionMode;selectedIds.clear();
+  $('toolbarNormal').style.display=selectionMode?'none':'';
+  $('toolbarSelect').style.display=selectionMode?'':'none';
+  updateSelCount();renderSongList();
+}
+function toggleSelect(id){
+  if(selectedIds.has(id))selectedIds.delete(id);else selectedIds.add(id);
+  updateSelCount();renderSongList();
+}
+function selectAllSongs(){
+  if(selectedIds.size===songs.length)selectedIds.clear();
+  else songs.forEach(s=>selectedIds.add(s.id));
+  updateSelCount();renderSongList();
+}
+function updateSelCount(){const el=$('selCount');if(el)el.textContent=`${selectedIds.size}件選択`}
+async function deleteSelectedSongs(){
+  if(!selectedIds.size)return showToast('曲を選択してください');
+  if(!confirm(`選択した${selectedIds.size}曲を削除しますか？`))return;
+  const ids=new Set(selectedIds);
+  const curId=currentSongIndex>=0?songs[currentSongIndex]?.id:null;
+  if(curId&&ids.has(curId)){audio.pause();isPlaying=false;currentSongIndex=-1;$('playerBar').classList.remove('visible');$('lyricsPanel').classList.add('hidden')}
+  for(const id of ids){
+    revokeThumbUrl(id);
+    await dbDel('songs',id).catch(()=>{});
+    await dbDel('audioData',id).catch(()=>{});
+    await dbDel('imageData',id).catch(()=>{});
+  }
+  songs=songs.filter(s=>!ids.has(s.id));
+  if(curId&&!ids.has(curId))currentSongIndex=songs.findIndex(s=>s.id===curId);
+  const n=ids.size;
+  selectedIds.clear();selectionMode=false;
+  $('toolbarNormal').style.display='';$('toolbarSelect').style.display='none';
+  renderSongList();showToast(`${n}曲を削除しました`);
+}
+
 function renderSongList(){
   const list=$('songList'),empty=$('emptyState');
-  if(!songs.length){list.innerHTML='';empty.style.display='';return}
+  if(!songs.length){list.innerHTML='';empty.style.display='';if(selectionMode)toggleSelectionMode();return}
   empty.style.display='none';
-  list.innerHTML=songs.map((s,i)=>`
+  if(selectionMode){
+    list.innerHTML=songs.map((s,i)=>{
+      const on=selectedIds.has(s.id);
+      return `<div class="song-card glass anim-in ${on?'selected':''}" style="animation-delay:${i*0.03}s" data-index="${i}" onclick="toggleSelect('${s.id}')">
+        <div class="song-check">${on?'☑':'☐'}</div>
+        <div class="song-thumb" id="thumb_${s.id}">🎵</div>
+        <div class="song-info"><div class="song-title">${escH(s.title)}</div><div class="song-artist">${escH(s.artist||'Unknown')}</div></div>
+      </div>`;
+    }).join('');
+  }else{
+    list.innerHTML=songs.map((s,i)=>`
     <div class="song-card glass anim-in ${currentSongIndex===i?'playing':''}"
       style="animation-delay:${i*0.05}s" draggable="true" data-index="${i}"
       onclick="playSong(${i})" ondragstart="onDS(event,${i})" ondragover="onDO(event)" ondrop="onDr(event,${i})" ondragend="onDE(event)">
@@ -909,6 +965,7 @@ function renderSongList(){
         <button onclick="deleteSong('${s.id}')">🗑</button>
       </div>
     </div>`).join('');
+  }
   songs.forEach(s=>loadThumb(s));
 }
 
