@@ -80,7 +80,7 @@ body::after{
 
 /* ═══════ Header ═══════ */
 .header{
-  text-align:center;padding:36px 20px 28px;margin-bottom:20px;
+  text-align:center;padding:28px 20px 24px;margin-bottom:20px;
   animation:fadeSlideUp .7s var(--ease-out) both;
 }
 .header h1{
@@ -93,6 +93,62 @@ body::after{
 .header p{
   font-size:.75rem;color:var(--text-secondary);margin-top:6px;
   letter-spacing:.06em;opacity:.8;
+}
+
+/* CSS Peach Logo — bass reactive */
+.peach-logo{
+  width:84px;height:84px;margin:10px auto 4px;position:relative;
+  will-change:transform,filter;
+  transform:scale(calc(1 + var(--bass) * 0.14)) translateY(calc(var(--bass) * -4px));
+  filter:drop-shadow(0 6px 14px rgba(236,72,153,.25))
+         drop-shadow(0 0 calc(var(--bass) * 24px) rgba(var(--orb-r),var(--orb-g),var(--orb-b),calc(var(--bass) * .85)));
+}
+.peach-body{
+  position:absolute;inset:10% 2% 0 2%;
+  border-radius:46% 54% 50% 50% / 52% 52% 48% 48%;
+  background:
+    radial-gradient(circle at 32% 32%, #fff4f8 0%, #fdd3e0 16%, #fbadc8 40%, #f078a4 72%, #d44d82 100%);
+  box-shadow:
+    inset -8px -10px 22px rgba(180,40,80,.28),
+    inset 6px 6px 16px rgba(255,255,255,.55),
+    0 8px 20px rgba(236,72,153,.15);
+  transform:scaleY(calc(1 - var(--bass) * 0.06));
+  transform-origin:50% 100%;
+}
+/* Cleft (center crease) */
+.peach-body::before{
+  content:'';position:absolute;top:4%;left:50%;transform:translateX(-50%);
+  width:5px;height:72%;
+  background:linear-gradient(to bottom,rgba(150,30,70,.45) 0%,rgba(150,30,70,.18) 55%,transparent 100%);
+  border-radius:3px;filter:blur(1.5px);
+}
+/* Shine */
+.peach-body::after{
+  content:'';position:absolute;top:14%;left:20%;
+  width:24%;height:20%;
+  background:radial-gradient(ellipse at center,rgba(255,255,255,.75) 0%,rgba(255,255,255,.1) 60%,transparent 100%);
+  border-radius:50%;filter:blur(2px);
+}
+/* Leaf */
+.peach-leaf{
+  position:absolute;top:2%;left:52%;
+  width:30px;height:20px;
+  background:linear-gradient(135deg,#9be09a 0%,#5cb85c 45%,#2e7d32 100%);
+  border-radius:0 100% 0 100%;
+  transform-origin:10% 90%;
+  transform:rotate(calc(-28deg - var(--bass) * 14deg));
+  box-shadow:inset -2px -2px 4px rgba(0,70,0,.35),0 2px 4px rgba(0,0,0,.12);
+}
+.peach-leaf::before{
+  content:'';position:absolute;top:52%;left:14%;width:78%;height:1.5px;
+  background:rgba(20,70,20,.45);
+  transform:translateY(-50%) rotate(-10deg);border-radius:1px;
+}
+/* Stem */
+.peach-stem{
+  position:absolute;top:4%;left:49%;
+  width:3px;height:10px;background:linear-gradient(to bottom,#6b3e1e,#8b5a2b);
+  border-radius:2px;transform:rotate(-8deg);
 }
 
 /* ═══════ Buttons ═══════ */
@@ -483,8 +539,11 @@ textarea.form-input{min-height:120px;resize:vertical}
 
 <div id="app">
   <div class="header glass">
-    <h1>🍑 ももプレイヤー</h1>
-    <p>音楽展示即売会プレイヤー</p>
+    <div class="peach-logo" role="img" aria-label="ももプレイヤー" title="ももプレイヤー">
+      <div class="peach-stem"></div>
+      <div class="peach-leaf"></div>
+      <div class="peach-body"></div>
+    </div>
   </div>
 
   <div class="toolbar" id="toolbarNormal">
