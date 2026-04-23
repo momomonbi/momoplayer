@@ -25,6 +25,7 @@
   --ease-spring:cubic-bezier(0.34,1.56,0.64,1);
   --ease-smooth:cubic-bezier(0.4,0,0.2,1);
   --ease-out:cubic-bezier(0,0,0.2,1);
+  --bass:0;
 }
 
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -40,16 +41,19 @@ html,body{
 /* Ambient orbs */
 body::before,body::after{
   content:'';position:fixed;border-radius:50%;pointer-events:none;z-index:0;
-  transition:all 1.2s var(--ease-smooth);
+  transition:background 1.2s var(--ease-smooth),width 1.2s var(--ease-smooth),height 1.2s var(--ease-smooth);
   filter:blur(80px);
+  will-change:transform,opacity;
 }
 body::before{
   width:50vw;height:50vw;top:-10vw;right:-15vw;
-  background:rgba(var(--orb-r),var(--orb-g),var(--orb-b),0.20);
+  background:rgba(var(--orb-r),var(--orb-g),var(--orb-b),calc(0.20 + var(--bass) * 0.18));
+  transform:scale(calc(1 + var(--bass) * 0.18));
 }
 body::after{
   width:40vw;height:40vw;bottom:10vh;left:-10vw;
-  background:rgba(var(--orb-r),var(--orb-g),var(--orb-b),0.12);
+  background:rgba(var(--orb-r),var(--orb-g),var(--orb-b),calc(0.12 + var(--bass) * 0.22));
+  transform:scale(calc(1 + var(--bass) * 0.24));
 }
 
 ::-webkit-scrollbar{width:5px}
@@ -241,6 +245,10 @@ body::after{
   100%{box-shadow:0 0 0 0 rgba(var(--orb-r),var(--orb-g),var(--orb-b),0)}
 }
 .play-btn.is-playing{animation:pulse-ring 2s var(--ease-smooth) infinite}
+.play-btn.is-playing{
+  transform:scale(calc(1 + var(--bass) * 0.12));
+  filter:drop-shadow(0 0 calc(var(--bass) * 18px) rgba(var(--orb-r),var(--orb-g),var(--orb-b),calc(var(--bass) * .75)));
+}
 
 /* Volume */
 .volume-row{display:flex;align-items:center;gap:8px;margin-top:8px}
@@ -262,9 +270,19 @@ body::after{
   width:40px;height:40px;border-radius:10px;overflow:hidden;
   background:var(--c100);flex-shrink:0;
   display:flex;align-items:center;justify-content:center;font-size:1rem;
-  transition:transform .4s var(--ease-spring),background .4s;
+  transition:background .4s;
+  will-change:transform,box-shadow;
+  transform:scale(calc(1 + var(--bass) * 0.18));
+  box-shadow:0 0 calc(var(--bass) * 22px) rgba(var(--orb-r),var(--orb-g),var(--orb-b),calc(var(--bass) * .85));
+  position:relative;
 }
 .now-playing-thumb img{width:100%;height:100%;object-fit:cover}
+.now-playing-thumb::after{
+  content:'';position:absolute;inset:-3px;border-radius:12px;pointer-events:none;
+  border:2px solid rgba(var(--orb-r),var(--orb-g),var(--orb-b),calc(var(--bass) * .8));
+  opacity:var(--bass);
+  transform:scale(calc(1 + var(--bass) * 0.15));
+}
 .now-playing-text{flex:1;min-width:0}
 .now-playing-title{font-family:'Hannari',serif;font-size:.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .now-playing-artist{font-size:.7rem;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -1167,7 +1185,8 @@ function startSpectrum(){
   if(!analyser)return;
   const cv=$('spectrumCanvas'),cx=cv.getContext('2d'),bl=analyser.frequencyBinCount;
   const freqData=new Uint8Array(bl),timeData=new Uint8Array(bl);
-  let lastW=0,lastH=0,particles=[];
+  let lastW=0,lastH=0,particles=[],bassVal=0;
+  const rootStyle=document.documentElement.style;
 
   function getGrad(cx,w,h,dir){
     const cs=getComputedStyle(document.documentElement);
@@ -1236,8 +1255,13 @@ function startSpectrum(){
   }
 
   function draw(){
-    if(!isPlaying){animFrameId=null;return}animFrameId=requestAnimationFrame(draw);
+    if(!isPlaying){animFrameId=null;bassVal=0;rootStyle.setProperty('--bass','0');return}animFrameId=requestAnimationFrame(draw);
     analyser.getByteFrequencyData(freqData);analyser.getByteTimeDomainData(timeData);
+    // Bass energy (bins 1-4 ≈ 170-860Hz) — peak follower: fast attack, slow decay
+    let bassSum=0;for(let i=1;i<=4;i++)bassSum+=freqData[i];
+    const bassRaw=Math.max(0,(bassSum/(4*255)-0.12)/0.88);
+    bassVal=Math.max(bassVal*0.86,bassRaw);
+    rootStyle.setProperty('--bass',bassVal.toFixed(3));
     const nw=cv.offsetWidth*(devicePixelRatio||1),nh=cv.offsetHeight*(devicePixelRatio||1);
     if(nw!==lastW||nh!==lastH){cv.width=nw;cv.height=nh;lastW=nw;lastH=nh}
     const w=lastW,h=lastH;cx.clearRect(0,0,w,h);
