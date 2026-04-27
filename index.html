@@ -770,7 +770,39 @@ function loadPlaybackSettings(){
 }
 
 /* ═══ IndexedDB ═══ */
-function openDB(){return new Promise((res,rej)=>{const r=indexedDB.open(DB_NAME,DB_VERSION);r.onupgradeneeded=e=>{const d=e.target.result;['songs','audioData','imageData'].forEach(n=>{if(!d.objectStoreNames.contains(n))d.createObjectStore(n,{keyPath:'id'})})};r.onsuccess=e=>{db=e.target.result;res(db)};r.onerror=e=>rej(e.target.error)})}
+function openDB(){
+  return new Promise((resolve,reject)=>{
+    if(!('indexedDB' in window)||!indexedDB)return reject(new Error('IndexedDB unavailable'));
+    let settled=false,attempts=0;
+    const MAX_ATTEMPTS=3,TIMEOUT_MS=4000;
+    const finish=(fn,v)=>{if(settled)return;settled=true;fn(v)};
+    const tryOpen=()=>{
+      attempts++;
+      let r;
+      try{r=indexedDB.open(DB_NAME,DB_VERSION)}
+      catch(err){return finish(reject,err)}
+      const timer=setTimeout(()=>{
+        if(settled)return;
+        if(attempts<MAX_ATTEMPTS){try{r.onsuccess=r.onerror=r.onblocked=r.onupgradeneeded=null}catch(_){}tryOpen()}
+        else finish(reject,new Error('IndexedDB open timeout'));
+      },TIMEOUT_MS);
+      r.onupgradeneeded=e=>{
+        const d=e.target.result;
+        ['songs','audioData','imageData'].forEach(n=>{if(!d.objectStoreNames.contains(n))d.createObjectStore(n,{keyPath:'id'})});
+      };
+      r.onsuccess=e=>{
+        clearTimeout(timer);
+        db=e.target.result;
+        try{db.onversionchange=()=>{try{db.close()}catch(_){}db=null}}catch(_){}
+        finish(resolve,db);
+      };
+      r.onerror=e=>{clearTimeout(timer);finish(reject,(e.target&&e.target.error)||new Error('IndexedDB open error'))};
+      r.onblocked=()=>{};
+    };
+    if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',tryOpen,{once:true});
+    else tryOpen();
+  });
+}
 function dbPut(s,d){return new Promise((r,j)=>{const t=db.transaction(s,'readwrite');t.objectStore(s).put(d);t.oncomplete=()=>r();t.onerror=e=>j(e.target.error)})}
 function dbGet(s,id){return new Promise((r,j)=>{const t=db.transaction(s,'readonly');const q=t.objectStore(s).get(id);q.onsuccess=()=>r(q.result);q.onerror=e=>j(e.target.error)})}
 function dbDel(s,id){return new Promise((r,j)=>{const t=db.transaction(s,'readwrite');t.objectStore(s).delete(id);t.oncomplete=()=>r();t.onerror=e=>j(e.target.error)})}
@@ -1513,7 +1545,13 @@ async function init(){
     await migrateRemoveDeviceRefs();
     renderSongList();setupiOS();trackPlayerHeight();
   }
-  catch(e){console.error(e);showToast('DB初期化に失敗しました',4000)}
+  catch(e){
+    console.error(e);
+    let msg='DB初期化に失敗しました';
+    if(isIOS)msg+='（プライベートブラウズではご利用いただけません）';
+    showToast(msg,5000);
+    try{renderSongList();setupiOS();trackPlayerHeight()}catch(_){}
+  }
   if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{})}
 }
 init();
