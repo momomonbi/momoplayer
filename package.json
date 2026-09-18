@@ -1,0 +1,11 @@
+{
+  "name": "momoplayer",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/sw.test.cjs && playwright test",
+    "test:browser": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}
