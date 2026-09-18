@@ -51,8 +51,15 @@ test('sorting retains the current song, source and next track',async({page})=>{
   expect(result).toEqual({current:'z',sourceUnchanged:true,order:['a','m','z'],savedOrder:['a','m','z']});
   await expect(page.locator('#nowPlayingTitle')).toHaveText('Z');
   await expect(page.locator('#lyricsContent')).toContainText('Z lyric');
-  await page.evaluate(async()=>{repeatMode='all';await nextSong();audio.pause()});
-  await expect.poll(()=>page.evaluate(()=>songs[currentSongIndex]?.id)).toBe('a');
+  const nextId=await page.evaluate(async()=>{
+    repeatMode='all';
+    const original=playSong;
+    let selected;
+    playSong=async idx=>{selected=songs[idx]?.id};
+    try{await nextSong()}finally{playSong=original}
+    return selected;
+  });
+  expect(nextId).toBe('a');
 });
 
 test('a delayed local read cannot replace a newer URL selection',async({page})=>{
