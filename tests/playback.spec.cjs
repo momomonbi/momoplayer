@@ -1,5 +1,30 @@
 const {test,expect,seedSongs}=require('./helpers.cjs');
 
+// State and race tests should not depend on a CI runner's audio backend.
+test.beforeEach(async({page})=>{
+  await page.evaluate(()=>{
+    const realInitAC=initAC,realStartSpectrum=startSpectrum;
+    for(const el of [localAudio,urlAudio]){
+      let paused=true,ended=false;
+      Object.defineProperty(el,'paused',{configurable:true,get:()=>paused});
+      Object.defineProperty(el,'ended',{configurable:true,get:()=>ended});
+      el.play=async()=>{paused=false;ended=false};
+      el.pause=()=>{
+        const changed=!paused;paused=true;
+        if(changed)el.dispatchEvent(new Event('pause'));
+      };
+      el.load=()=>{ended=false};
+    }
+    initAC=async()=>{};startSpectrum=()=>{};
+    window.restoreRealMedia=()=>{
+      for(const el of [localAudio,urlAudio]){
+        for(const key of ['paused','ended','play','pause','load'])delete el[key];
+      }
+      initAC=realInitAC;startSpectrum=realStartSpectrum;
+    };
+  });
+});
+
 async function externalToneUrl(page){
   return page.evaluate(()=>{
     const url=new URL('/tone.wav',location.href);
@@ -157,7 +182,8 @@ test('repeat one never restarts the previous source while the selected song is u
 });
 
 test('external audio bypasses WebAudio and source changes retain volume and events',async({page,browserName})=>{
-  test.skip(browserName==='webkit','Playwright WebKit on Windows does not expose Web Audio');
+  test.skip(browserName==='webkit','Playwright WebKit does not expose Web Audio');
+  await page.evaluate(()=>window.restoreRealMedia());
   const url=await externalToneUrl(page);
   await seedSongs(page,[
     {id:'a',title:'Local A'},
