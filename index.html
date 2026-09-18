@@ -718,9 +718,13 @@ function loadSavedTheme(){
 /* ═══ State ═══ */
 let db=null;const DB_NAME='MomoPlayerDB',DB_VERSION=4;
 let songs=[],currentSongIndex=-1,isPlaying=false;
-let audio=new Audio(),audioContext=null,analyser=null,sourceNode=null,animFrameId=null;
+const localAudio=new Audio(),urlAudio=new Audio();
+let audio=localAudio,audioContext=null,audioContextInit=null,analyser=null,sourceNode=null,animFrameId=null;
+let playRequestId=0,loadedSongId=null;
 let pendingAudioBuf=null,pendingAudioType=null,pendingImgBuf=null,pendingImgType=null;
-let timingData=[],timingCurLine=0;
+let timingData=[],timingCurLine=0,timingSongId=null,timingLyrics='',timingDraftVersion=0;
+const timingSaves=new Set(),activeImports=new Set();
+let libraryQueue=Promise.resolve(),savingSong=false,updatingSong=false,deletingAll=false;
 const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 
 /* ═══ Spectrum Types ═══ */
@@ -803,9 +807,40 @@ function openDB(){
     else tryOpen();
   });
 }
-function dbPut(s,d){return new Promise((r,j)=>{const t=db.transaction(s,'readwrite');t.objectStore(s).put(d);t.oncomplete=()=>r();t.onerror=e=>j(e.target.error)})}
+function dbWrite(stores,write){
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(stores,'readwrite');
+    tx.oncomplete=()=>resolve();
+    tx.onabort=()=>reject(tx.error||new Error('保存が中断されました'));
+    tx.onerror=()=>{};
+    try{write(tx)}catch(err){try{tx.abort()}catch(_){}reject(err)}
+  });
+}
+function mutateLibrary(action){
+  const result=libraryQueue.then(action);
+  libraryQueue=result.catch(()=>{});
+  return result;
+}
+function writeSong(song,audioData,imageData){
+  const stores=['songs'];if(audioData)stores.push('audioData');if(imageData)stores.push('imageData');
+  return dbWrite(stores,tx=>{
+    tx.objectStore('songs').put(song);
+    if(audioData)tx.objectStore('audioData').put(audioData);
+    if(imageData)tx.objectStore('imageData').put(imageData);
+  });
+}
+function nextSongOrder(){return songs.reduce((max,s)=>Math.max(max,s.order??0),-1)+1}
+async function canContinueImport(token){
+  while(token.deleteDecision){
+    const decision=token.deleteDecision,cancelled=await decision;
+    if(token.deleteDecision===decision)token.deleteDecision=null;
+    if(cancelled){token.cancelled=true;return false}
+  }
+  return !token.cancelled;
+}
+function dbPut(s,d){return dbWrite(s,tx=>tx.objectStore(s).put(d))}
 function dbGet(s,id){return new Promise((r,j)=>{const t=db.transaction(s,'readonly');const q=t.objectStore(s).get(id);q.onsuccess=()=>r(q.result);q.onerror=e=>j(e.target.error)})}
-function dbDel(s,id){return new Promise((r,j)=>{const t=db.transaction(s,'readwrite');t.objectStore(s).delete(id);t.oncomplete=()=>r();t.onerror=e=>j(e.target.error)})}
+function dbDel(s,id){return dbWrite(s,tx=>tx.objectStore(s).delete(id))}
 function dbKeys(s){return new Promise((r,j)=>{const t=db.transaction(s,'readonly');const q=t.objectStore(s).getAllKeys();q.onsuccess=()=>r(q.result);q.onerror=e=>j(e.target.error)})}
 function dbAll(s){return new Promise((r,j)=>{const t=db.transaction(s,'readonly');const q=t.objectStore(s).getAll();q.onsuccess=()=>r(q.result||[]);q.onerror=e=>j(e.target.error)})}
 
@@ -829,11 +864,12 @@ function isValidUrl(str){
 function readBuf(f){return new Promise((r,j)=>{const x=new FileReader();x.onload=()=>r(x.result);x.onerror=()=>j(x.error);x.readAsArrayBuffer(f)})}
 function fname2t(n){return n.replace(/\.[^.]+$/,'')}
 const AUDIO_EXT_MIME={mp3:'audio/mpeg',m4a:'audio/mp4',mp4:'audio/mp4',aac:'audio/aac',ogg:'audio/ogg',opus:'audio/ogg',wav:'audio/wav',wave:'audio/wav',flac:'audio/flac',wma:'audio/x-ms-wma',aiff:'audio/aiff',aif:'audio/aiff'};
-function audioMime(f){if(f.type&&f.type.indexOf('audio/')===0)return f.type;const m=f.name.toLowerCase().match(/\.([a-z0-9]+)$/);return(m&&AUDIO_EXT_MIME[m[1]])||f.type||'audio/mpeg'}
+function audioMime(f){if(f.type&&f.type.indexOf('audio/')===0)return f.type;const m=f.name.toLowerCase().match(/\.([a-z0-9]+)$/);return(m&&AUDIO_EXT_MIME[m[1]])||''}
 
 $('audioFileInput').addEventListener('change',async function(e){
   const f=e.target.files[0];if(!f)return;
-  pendingAudioBuf=await readBuf(f);pendingAudioType=audioMime(f);
+  const mime=audioMime(f);if(!mime){e.target.value='';return showToast('対応している音声ファイルを選択してください')}
+  pendingAudioBuf=await readBuf(f);pendingAudioType=mime;
   $('audioDrop').innerHTML=`<div class="loaded">\u2705 ${escH(f.name)}</div>`;
   const t=$('songTitle');if(!t.value.trim())t.value=fname2t(f.name);
 });
@@ -859,20 +895,28 @@ $('folderInput').addEventListener('change',async function(e){
   });
   if(!audios.length)return showToast(skipped?`${skipped}件スキップ／対象の音声ファイルなし`:'音声ファイルが見つかりませんでした');
   audios.sort((a,b)=>(a.webkitRelativePath||a.name).localeCompare(b.webkitRelativePath||b.name,undefined,{numeric:true}));
+  const importToken={cancelled:false,deleteDecision:null};activeImports.add(importToken);
   let added=0,failed=0;
   showToast(`${audios.length}件を読み込み中${skipped?`（ゴミ箱等${skipped}件除外）`:''}...`,2000);
   for(const f of audios){
+    if(!await canContinueImport(importToken))break;
     try{
       const buf=await readBuf(f),mime=audioMime(f),id=gid();
+      if(!await canContinueImport(importToken))break;
       const song={id,title:fname2t(f.name),artist:'',lyrics:'',lyricsTimings:[],
         audioSource:'local',audioUrl:'',audioType:mime,
         imageSource:'none',imageUrl:'',imageType:'',
         addedAt:Date.now(),order:songs.length};
-      await dbPut('songs',song);
-      await dbPut('audioData',{id,buffer:buf,type:mime});
-      songs.push(song);added++;
+      await mutateLibrary(async()=>{
+        if(importToken.cancelled)return;
+        song.order=nextSongOrder();
+        await writeSong(song,{id,buffer:buf,type:mime});
+        songs.push(song);added++;
+      });
     }catch(err){console.error('import failed:',f.name,err);failed++}
   }
+  activeImports.delete(importToken);
+  if(importToken.cancelled)return;
   renderSongList();
   showToast(`${added}曲を追加しました${failed?`（${failed}件失敗）`:''}`,3000);
 });
@@ -895,7 +939,7 @@ $('editLyricsFile').addEventListener('change',function(e){const f=e.target.files
   el.addEventListener('dragleave',()=>el.classList.remove('dragover'));
   el.addEventListener('drop',async e=>{
     e.preventDefault();el.classList.remove('dragover');const f=e.dataTransfer.files[0];if(!f)return;
-    if(id.includes('audio')){pendingAudioBuf=await readBuf(f);pendingAudioType=audioMime(f);el.innerHTML=`<div class="loaded">\u2705 ${escH(f.name)}</div>`;const t=$('songTitle');if(!t.value.trim())t.value=fname2t(f.name)}
+    if(id.includes('audio')){const mime=audioMime(f);if(!mime)return showToast('対応している音声ファイルを選択してください');pendingAudioBuf=await readBuf(f);pendingAudioType=mime;el.innerHTML=`<div class="loaded">\u2705 ${escH(f.name)}</div>`;const t=$('songTitle');if(!t.value.trim())t.value=fname2t(f.name)}
     else{pendingImgBuf=await readBuf(f);pendingImgType=f.type;el.innerHTML=`<div class="loaded">\u2705 ${escH(f.name)}</div>`}
   });
 });
@@ -904,6 +948,7 @@ $('editLyricsFile').addEventListener('change',function(e){const f=e.target.files
 function gid(){return Date.now().toString(36)+Math.random().toString(36).substr(2,5)}
 
 async function saveSong(){
+  if(savingSong)return;
   const title=$('songTitle').value.trim(),artist=$('songArtist').value.trim(),
     lyrics=$('songLyrics').value.trim(),aUrl=$('audioUrl').value.trim(),iUrl=$('imageUrl').value.trim();
   if(!title)return showToast('タイトルを入力してください');
@@ -914,36 +959,59 @@ async function saveSong(){
     audioSource:pendingAudioBuf?'local':'url',audioUrl:aUrl?cloudUrl(aUrl):'',audioType:pendingAudioType||'',
     imageSource:pendingImgBuf?'local':(iUrl?'url':'none'),imageUrl:iUrl?cloudUrl(iUrl):'',
     imageType:pendingImgType||'',addedAt:Date.now(),order:songs.length};
+  const audioData=pendingAudioBuf?{id,buffer:pendingAudioBuf,type:pendingAudioType||''}:null;
+  const imageData=pendingImgBuf?{id,buffer:pendingImgBuf,type:pendingImgType}:null;
+  savingSong=true;
   try{
-    await dbPut('songs',song);
-    if(pendingAudioBuf)await dbPut('audioData',{id,buffer:pendingAudioBuf,type:pendingAudioType||''});
-    if(pendingImgBuf)await dbPut('imageData',{id,buffer:pendingImgBuf,type:pendingImgType});
-    songs.push(song);renderSongList();closeModal('addModal');showToast('曲を追加しました');
+    await mutateLibrary(async()=>{
+      song.order=nextSongOrder();
+      await writeSong(song,audioData,imageData);
+      songs.push(song);
+    });
+    renderSongList();closeModal('addModal');showToast('曲を追加しました');
   }catch(err){showToast('保存に失敗: '+err.message,4000)}
+  finally{savingSong=false}
 }
 
 async function updateSong(){
-  const id=$('editSongId').value,song=songs.find(s=>s.id===id);if(!song)return;
-  song.title=$('editTitle').value.trim()||song.title;
-  song.artist=$('editArtist').value.trim();
-  song.lyrics=$('editLyrics').value.trim();
+  if(updatingSong)return;
+  const id=$('editSongId').value;
+  const title=$('editTitle').value.trim(),artist=$('editArtist').value.trim(),lyrics=$('editLyrics').value.trim();
   const iUrl=$('editImageUrl').value.trim();
   if(iUrl&&!isValidUrl(iUrl))return showToast('有効な画像URLを入力してください');
-  if(pendingImgBuf){song.imageSource='local';song.imageType=pendingImgType;song.imageUrl='';await dbPut('imageData',{id,buffer:pendingImgBuf,type:pendingImgType})}
-  else if(iUrl){song.imageSource='url';song.imageUrl=cloudUrl(iUrl)}
-  await dbPut('songs',song);renderSongList();closeModal('editModal');
-  if(currentSongIndex>=0&&songs[currentSongIndex].id===id){updateNP();renderLyrics()}
-  showToast('曲を更新しました');
+  const imageData=pendingImgBuf?{id,buffer:pendingImgBuf,type:pendingImgType}:null;
+  updatingSong=true;
+  try{
+    await mutateLibrary(async()=>{
+      const previous=songs.find(s=>s.id===id);if(!previous)throw new Error('曲が削除されています');
+      const song={...previous,title:title||previous.title,artist,lyrics};
+      if(lyrics!==previous.lyrics)song.lyricsTimings=[];
+      if(imageData){song.imageSource='local';song.imageType=imageData.type;song.imageUrl=''}
+      else if(iUrl){song.imageSource='url';song.imageUrl=cloudUrl(iUrl)}
+      await writeSong(song,null,imageData);
+      songs[songs.findIndex(s=>s.id===id)]=song;
+    });
+    renderSongList();closeModal('editModal');
+    if(songs[currentSongIndex]?.id===id){updateNP();renderLyrics();updateMediaSession()}
+    showToast('曲を更新しました');
+  }catch(err){showToast('更新に失敗: '+err.message,4000)}
+  finally{updatingSong=false}
 }
 
 async function deleteSong(id){
   if(!confirm('この曲を削除しますか？'))return;
-  const idx=songs.findIndex(s=>s.id===id);if(idx===-1)return;
-  if(currentSongIndex===idx){audio.pause();isPlaying=false;currentSongIndex=-1;$('playerBar').classList.remove('visible');$('lyricsPanel').classList.add('hidden')}
-  else if(currentSongIndex>idx)currentSongIndex--;
-  revokeThumbUrl(id);
-  songs.splice(idx,1);await dbDel('songs',id);await dbDel('audioData',id).catch(()=>{});await dbDel('imageData',id).catch(()=>{});renderSongList();
-  showToast('曲を削除しました');
+  try{await mutateLibrary(()=>removeSongs(new Set([id])));renderSongList();showToast('曲を削除しました')}
+  catch(err){showToast('削除に失敗: '+err.message,4000)}
+}
+async function removeSongs(ids){
+  await dbWrite(['songs','audioData','imageData'],tx=>{
+    for(const id of ids)for(const name of ['songs','audioData','imageData'])tx.objectStore(name).delete(id);
+  });
+  const currentId=songs[currentSongIndex]?.id;
+  if(ids.has(currentId))stopPlayback();
+  for(const id of ids){revokeThumbUrl(id);selectedIds.delete(id)}
+  songs=songs.filter(s=>!ids.has(s.id));
+  currentSongIndex=songs.findIndex(s=>s.id===currentId);
 }
 
 /* ═══ XSS-safe image helper ═══ */
@@ -985,20 +1053,12 @@ async function deleteSelectedSongs(){
   if(!selectedIds.size)return showToast('曲を選択してください');
   if(!confirm(`選択した${selectedIds.size}曲を削除しますか？`))return;
   const ids=new Set(selectedIds);
-  const curId=currentSongIndex>=0?songs[currentSongIndex]?.id:null;
-  if(curId&&ids.has(curId)){audio.pause();isPlaying=false;currentSongIndex=-1;$('playerBar').classList.remove('visible');$('lyricsPanel').classList.add('hidden')}
-  for(const id of ids){
-    revokeThumbUrl(id);
-    await dbDel('songs',id).catch(()=>{});
-    await dbDel('audioData',id).catch(()=>{});
-    await dbDel('imageData',id).catch(()=>{});
-  }
-  songs=songs.filter(s=>!ids.has(s.id));
-  if(curId&&!ids.has(curId))currentSongIndex=songs.findIndex(s=>s.id===curId);
-  const n=ids.size;
-  selectedIds.clear();selectionMode=false;
-  $('toolbarNormal').style.display='';$('toolbarSelect').style.display='none';
-  renderSongList();showToast(`${n}曲を削除しました`);
+  try{
+    await mutateLibrary(()=>removeSongs(ids));
+    selectedIds.clear();selectionMode=false;
+    $('toolbarNormal').style.display='';$('toolbarSelect').style.display='none';
+    renderSongList();showToast(`${ids.size}曲を削除しました`);
+  }catch(err){showToast('削除に失敗: '+err.message,4000)}
 }
 
 function renderSongList(){
@@ -1046,94 +1106,143 @@ function escH(s){const d=document.createElement('div');d.textContent=s;return d.
 let dragIdx=-1;
 function onDS(e,i){dragIdx=i;e.target.closest('.song-card').classList.add('dragging');e.dataTransfer.effectAllowed='move'}
 function onDO(e){e.preventDefault();e.currentTarget.classList.add('drag-over')}
-function onDr(e,ti){
+async function onDr(e,ti){
   e.preventDefault();e.currentTarget.classList.remove('drag-over');
   if(dragIdx===ti||dragIdx<0)return;
-  const[m]=songs.splice(dragIdx,1);songs.splice(ti,0,m);
-  if(currentSongIndex===dragIdx)currentSongIndex=ti;
-  else if(dragIdx<currentSongIndex&&ti>=currentSongIndex)currentSongIndex--;
-  else if(dragIdx>currentSongIndex&&ti<=currentSongIndex)currentSongIndex++;
-  saveSongOrder();renderSongList();
+  const movedId=songs[dragIdx]?.id,targetId=songs[ti]?.id;
+  try{
+    await mutateLibrary(async()=>{
+      const ordered=songs.slice(),from=ordered.findIndex(s=>s.id===movedId),to=ordered.findIndex(s=>s.id===targetId);
+      if(from<0||to<0)return;
+      const[m]=ordered.splice(from,1);ordered.splice(to,0,m);
+      await saveSongOrder(ordered);
+    });
+    renderSongList();
+  }catch(err){showToast('並び替えに失敗: '+err.message,4000)}
 }
 function onDE(e){const c=e.target.closest('.song-card');if(c)c.classList.remove('dragging');document.querySelectorAll('.drag-over').forEach(el=>el.classList.remove('drag-over'));dragIdx=-1}
 
 /* Batch saveSongOrder — single transaction */
-async function saveSongOrder(){
-  const tx=db.transaction('songs','readwrite');
-  const store=tx.objectStore('songs');
-  for(let i=0;i<songs.length;i++){songs[i].order=i;store.put(songs[i])}
-  return new Promise((res,rej)=>{tx.oncomplete=res;tx.onerror=e=>rej(e.target.error)});
+async function saveSongOrder(ordered=songs){
+  const updated=ordered.map((song,order)=>({...song,order}));
+  await dbWrite('songs',tx=>{for(const song of updated)tx.objectStore('songs').put(song)});
+  const currentId=songs[currentSongIndex]?.id;
+  songs=updated;currentSongIndex=songs.findIndex(s=>s.id===currentId);
 }
 
 /* ═══ Sort ═══ */
-function sortSongs(by){
-  if(by==='title')songs.sort((a,b)=>a.title.localeCompare(b.title,'ja'));
-  else if(by==='artist')songs.sort((a,b)=>(a.artist||'').localeCompare(b.artist||'','ja'));
-  else songs.sort((a,b)=>a.addedAt-b.addedAt);
-  saveSongOrder();renderSongList();closeModal('settingsModal');
+async function sortSongs(by){
+  try{
+    await mutateLibrary(async()=>{
+      const ordered=songs.slice();
+      if(by==='title')ordered.sort((a,b)=>a.title.localeCompare(b.title,'ja'));
+      else if(by==='artist')ordered.sort((a,b)=>(a.artist||'').localeCompare(b.artist||'','ja'));
+      else ordered.sort((a,b)=>a.addedAt-b.addedAt);
+      await saveSongOrder(ordered);
+    });
+    renderSongList();closeModal('settingsModal');
+  }catch(err){showToast('並び替えに失敗: '+err.message,4000)}
 }
 
 /* ═══ Playback ═══ */
 async function playSong(idx){
-  if(idx<0||idx>=songs.length)return;const song=songs[idx];currentSongIndex=idx;
-  audio.pause();if(audio._oUrl){URL.revokeObjectURL(audio._oUrl);audio._oUrl=null}
+  if(idx<0||idx>=songs.length)return;
+  const song=songs[idx],songId=song.id,requestId=++playRequestId;
+  currentSongIndex=idx;loadedSongId=null;
+  pausePlayback();$('playerBar').classList.add('visible');updateNP();renderLyrics();renderSongList();
   try{
+    let target,src;
     if(song.audioSource==='local'){
       const d=await dbGet('audioData',song.id);
+      if(requestId!==playRequestId||!songs.some(s=>s.id===songId))return;
       if(!d||!d.buffer){showToast('音声データが見つかりません',3000);return}
-      const b=new Blob([d.buffer],{type:song.audioType||d.type||'audio/mpeg'}),u=URL.createObjectURL(b);audio._oUrl=u;audio.src=u;
+      target=localAudio;
+      releaseObjectUrl(target);
+      src=URL.createObjectURL(new Blob([d.buffer],{type:song.audioType||d.type||'audio/mpeg'}));
+      target._oUrl=src;
     }else{
       if(!song.audioUrl){showToast('音声URLが設定されていません',3000);return}
-      audio.src=song.audioUrl;
+      target=urlAudio;src=song.audioUrl;
     }
-    audio.load();await audio.play();isPlaying=true;
-    $('playBtn').textContent='⏸';$('playBtn').classList.add('is-playing');
+    activateAudio(target);target._requestId=requestId;target.src=src;target.load();
+    await target.play();
+    if(requestId!==playRequestId||!songs.some(s=>s.id===songId)){if(target._requestId===requestId)target.pause();return}
+    loadedSongId=songId;setPlayingState(true);
     $('playerBar').classList.add('visible');
-    updateNP();renderSongList();renderLyrics();initAC();startSpectrum();updateMediaSession();
+    updateNP();renderSongList();renderLyrics();
+    if(target===localAudio)await initAC();
+    startSpectrum();updateMediaSession();
   }catch(err){
-    console.error(err);isPlaying=false;
-    $('playBtn').textContent='▶';$('playBtn').classList.remove('is-playing');
+    if(requestId!==playRequestId)return;
+    console.error(err);setPlayingState(false);loadedSongId=null;
     $('playerBar').classList.add('visible');updateNP();renderSongList();
     showToast('再生に失敗しました: '+err.message,4000);
   }
 }
 
-function togglePlay(){
+function releaseObjectUrl(el){
+  if(el._oUrl){URL.revokeObjectURL(el._oUrl);el._oUrl=null}
+}
+function activateAudio(target){
+  if(audio===target)return;
+  const volume=audio.volume,rate=audio.playbackRate,muted=audio.muted;
+  audio.pause();audio=target;
+  audio.volume=volume;audio.playbackRate=rate;audio.muted=muted;
+}
+function setPlayingState(playing){
+  isPlaying=playing;
+  $('playBtn').textContent=playing?'⏸':'▶';
+  $('playBtn').classList.toggle('is-playing',playing);
+  const t=$('timingPlayBtn');if(t)t.textContent=playing?'⏸ 一時停止':'▶ 再生';
+}
+function pausePlayback(cancelPending=false){
+  if(cancelPending){playRequestId++;localAudio._requestId=0;urlAudio._requestId=0}
+  audio.pause();setPlayingState(false);stopSpectrum();
+}
+function stopPlayback(){
+  playRequestId++;localAudio.pause();urlAudio.pause();
+  localAudio._requestId=0;urlAudio._requestId=0;
+  releaseObjectUrl(localAudio);loadedSongId=null;currentSongIndex=-1;
+  setPlayingState(false);stopSpectrum();
+  $('playerBar').classList.remove('visible');$('lyricsPanel').classList.add('hidden');
+}
+async function togglePlay(){
   if(currentSongIndex<0){if(songs.length)playSong(0);return}
+  if(loadedSongId!==songs[currentSongIndex]?.id){await playSong(currentSongIndex);return}
   if(isPlaying){
-    audio.pause();isPlaying=false;
-    $('playBtn').textContent='▶';$('playBtn').classList.remove('is-playing');
-    const t=$('timingPlayBtn');if(t)t.textContent='▶ 再生';
+    pausePlayback();
   }else{
-    audio.play().then(()=>{
-      isPlaying=true;$('playBtn').textContent='⏸';$('playBtn').classList.add('is-playing');
-      const t=$('timingPlayBtn');if(t)t.textContent='⏸ 一時停止';
-      startSpectrum();
-    }).catch(()=>{});
+    try{await audio.play();setPlayingState(true);startSpectrum()}
+    catch(err){showToast('再生に失敗しました: '+err.message,4000)}
   }
 }
 
-function prevSong(){
+async function prevSong(){
   if(!songs.length)return;
   if(shuffleMode){
     let next;do{next=Math.floor(Math.random()*songs.length)}while(next===currentSongIndex&&songs.length>1);
-    playSong(next);
+    return playSong(next);
   }else{
-    playSong(currentSongIndex<=0?songs.length-1:currentSongIndex-1);
+    return playSong(currentSongIndex<=0?songs.length-1:currentSongIndex-1);
   }
 }
 
-function nextSong(){
+async function nextSong(){
   if(!songs.length)return;
-  if(repeatMode==='one'){audio.currentTime=0;audio.play().catch(()=>{});return}
+  if(repeatMode==='one'){
+    if(loadedSongId!==songs[currentSongIndex]?.id)return playSong(currentSongIndex<0?0:currentSongIndex);
+    audio.currentTime=0;
+    try{await audio.play();setPlayingState(true);startSpectrum()}catch(_){}
+    return;
+  }
   if(shuffleMode){
     let next;do{next=Math.floor(Math.random()*songs.length)}while(next===currentSongIndex&&songs.length>1);
-    playSong(next);
+    return playSong(next);
   }else if(currentSongIndex>=songs.length-1){
-    if(repeatMode==='all')playSong(0);
-    else{isPlaying=false;$('playBtn').textContent='▶';$('playBtn').classList.remove('is-playing')}
+    if(repeatMode==='all')return playSong(0);
+    else pausePlayback(true);
   }else{
-    playSong(currentSongIndex+1);
+    return playSong(currentSongIndex+1);
   }
 }
 
@@ -1149,14 +1258,19 @@ function adjustVolume(delta){
 }
 
 /* ═══ Progress ═══ */
-audio.addEventListener('timeupdate',()=>{
+function bindAudioEvents(el){
+el.addEventListener('timeupdate',e=>{
+  if(e.currentTarget!==audio||loadedSongId!==songs[currentSongIndex]?.id)return;
   if(!audio.duration)return;
   $('progressFill').style.width=(audio.currentTime/audio.duration*100)+'%';
   $('currentTime').textContent=fmtT(audio.currentTime);
   $('durationTime').textContent=fmtT(audio.duration);
   highlightLyrics(audio.currentTime);
 });
-audio.addEventListener('ended',()=>nextSong());
+el.addEventListener('ended',e=>{if(e.currentTarget===audio&&e.currentTarget.ended&&loadedSongId===songs[currentSongIndex]?.id)nextSong()});
+el.addEventListener('pause',e=>{if(e.currentTarget===audio&&isPlaying)setPlayingState(false)});
+}
+bindAudioEvents(localAudio);bindAudioEvents(urlAudio);
 
 /* Click seek */
 $('progressWrap').addEventListener('click',function(e){if(!audio.duration)return;audio.currentTime=((e.clientX-this.getBoundingClientRect().left)/this.getBoundingClientRect().width)*audio.duration});
@@ -1196,8 +1310,8 @@ function updateMediaSession(){
   if(s.imageSource==='url'&&s.imageUrl){artwork.push({src:s.imageUrl,sizes:'512x512',type:'image/jpeg'})}
   try{
     navigator.mediaSession.metadata=new MediaMetadata({title:s.title,artist:s.artist||'Unknown',album:'ももプレイヤー',artwork:artwork});
-    navigator.mediaSession.setActionHandler('play',()=>togglePlay());
-    navigator.mediaSession.setActionHandler('pause',()=>togglePlay());
+    navigator.mediaSession.setActionHandler('play',()=>{if(!isPlaying)togglePlay()});
+    navigator.mediaSession.setActionHandler('pause',()=>{if(isPlaying)togglePlay()});
     navigator.mediaSession.setActionHandler('previoustrack',()=>prevSong());
     navigator.mediaSession.setActionHandler('nexttrack',()=>nextSong());
     navigator.mediaSession.setActionHandler('seekbackward',()=>rewind5());
@@ -1278,12 +1392,30 @@ function drawCircleLogo(freqData){
 }
 
 /* ═══ Spectrum (optimized canvas resize) ═══ */
-function initAC(){
-  if(audioContext)return;
-  try{audioContext=new(window.AudioContext||window.webkitAudioContext)();analyser=audioContext.createAnalyser();analyser.fftSize=256;analyser.smoothingTimeConstant=.82;sourceNode=audioContext.createMediaElementSource(audio);sourceNode.connect(analyser);analyser.connect(audioContext.destination)}catch(e){}
+async function initAC(){
+  if(audioContext){if(audioContext.state==='suspended')try{await audioContext.resume()}catch(_){}return}
+  if(audioContextInit)return audioContextInit;
+  const Context=window.AudioContext||window.webkitAudioContext;if(!Context)return;
+  audioContextInit=(async()=>{
+    let context;
+    try{
+      context=new Context();
+      if(context.state==='suspended')await context.resume();
+      if(context.state!=='running'){await context.close().catch(()=>{});return}
+      const nextAnalyser=context.createAnalyser();nextAnalyser.fftSize=256;nextAnalyser.smoothingTimeConstant=.82;
+      const nextSource=context.createMediaElementSource(localAudio);nextSource.connect(nextAnalyser);nextAnalyser.connect(context.destination);
+      audioContext=context;analyser=nextAnalyser;sourceNode=nextSource;
+    }catch(e){if(context&&!sourceNode)try{await context.close()}catch(_){}}
+  })();
+  try{await audioContextInit}finally{audioContextInit=null}
+}
+function stopSpectrum(){
+  if(animFrameId){cancelAnimationFrame(animFrameId);animFrameId=null}
+  document.documentElement.style.setProperty('--bass','0');drawCircleLogo(null);
 }
 function startSpectrum(){
-  if(!analyser)return;
+  stopSpectrum();
+  if(!analyser||audio!==localAudio)return;
   const cv=$('spectrumCanvas'),cx=cv.getContext('2d'),bl=analyser.frequencyBinCount;
   const freqData=new Uint8Array(bl),timeData=new Uint8Array(bl);
   let lastW=0,lastH=0,particles=[],bassVal=0;
@@ -1424,7 +1556,7 @@ function highlightLyrics(time){
   let ai=-1;for(let i=ts.length-1;i>=0;i--){if(ts[i]!=null&&time>=ts[i]){ai=i;break}}
 
   if(_lrcLines){
-    if(ai!==_lrcActiveIdx&&ai>=0){_lrcActiveIdx=ai;updateCenterLyrics(ai)}
+    if(ai!==_lrcActiveIdx){_lrcActiveIdx=ai;updateCenterLyrics(ai<0?0:ai)}
   }else{
     document.querySelectorAll('#lyricsContent .lyrics-line').forEach((el,i)=>el.classList.toggle('active',i===ai));
     if(ai>=0){const el=document.querySelector(`#lyricsContent .lyrics-line[data-line="${ai}"]`);if(el)el.scrollIntoView({behavior:'smooth',block:'center'})}
@@ -1444,6 +1576,7 @@ document.addEventListener('click',function(e){
 function openLyricsTimingModal(){
   if(currentSongIndex<0)return;const s=songs[currentSongIndex];if(!s.lyrics)return;
   const ls=s.lyrics.split('\n').filter(l=>l.trim());
+  timingSongId=s.id;timingLyrics=s.lyrics;timingDraftVersion++;
   timingData=ls.map((t,i)=>({text:t,time:(s.lyricsTimings||[])[i]??null}));timingCurLine=0;
   renderTimingLines();openModal('timingModal');
 }
@@ -1456,11 +1589,32 @@ function renderTimingLines(){
       <button onclick="clrT(${i})">✕</button>
     </div>`).join('');
 }
-function setTL(i){timingData[i].time=audio.currentTime;timingCurLine=Math.min(i+1,timingData.length-1);renderTimingLines();const el=document.querySelector(`.timing-line[data-tidx="${timingCurLine}"]`);if(el)el.scrollIntoView({behavior:'smooth',block:'center'})}
-function clrT(i){timingData[i].time=null;renderTimingLines()}
-function clearAllTimings(){if(!confirm('全てのタイミングをクリア？'))return;timingData.forEach(d=>d.time=null);timingCurLine=0;renderTimingLines()}
+function setTL(i){
+  if(songs[currentSongIndex]?.id!==timingSongId||loadedSongId!==timingSongId)return showToast('タイミング対象の曲を再生してください',3000);
+  if(!timingData[i])return;
+  timingData[i].time=audio.currentTime;timingDraftVersion++;timingCurLine=Math.min(i+1,timingData.length-1);renderTimingLines();const el=document.querySelector(`.timing-line[data-tidx="${timingCurLine}"]`);if(el)el.scrollIntoView({behavior:'smooth',block:'center'})
+}
+function clrT(i){if(!timingData[i])return;timingData[i].time=null;timingDraftVersion++;renderTimingLines()}
+function clearAllTimings(){if(!confirm('全てのタイミングをクリア？'))return;timingData.forEach(d=>d.time=null);timingDraftVersion++;timingCurLine=0;renderTimingLines()}
 function tRew(n){audio.currentTime=Math.max(0,audio.currentTime-n)}
-async function saveTimings(){if(currentSongIndex<0)return;songs[currentSongIndex].lyricsTimings=timingData.map(d=>d.time);await dbPut('songs',songs[currentSongIndex]);renderLyrics();closeModal('timingModal');showToast('タイミングを保存しました')}
+async function saveTimings(){
+  if(!timingSongId)return;
+  const draftSongId=timingSongId,draftLyrics=timingLyrics,draftTimes=timingData.map(d=>d.time),draftVersion=timingDraftVersion;
+  if(timingSaves.has(draftVersion))return;timingSaves.add(draftVersion);
+  try{
+    await mutateLibrary(async()=>{
+      const idx=songs.findIndex(s=>s.id===draftSongId),previous=songs[idx];
+      if(!previous)throw new Error('対象の曲が削除されています');
+      if(previous.lyrics!==draftLyrics)throw new Error('歌詞が変更されています。タイミングを開き直してください');
+      const updated={...previous,lyricsTimings:draftTimes};
+      await dbPut('songs',updated);songs[idx]=updated;
+    });
+    if(songs[currentSongIndex]?.id===draftSongId)renderLyrics();
+    if(timingDraftVersion===draftVersion)closeModal('timingModal');
+    showToast('タイミングを保存しました');
+  }catch(err){showToast('保存に失敗: '+err.message,4000)}
+  finally{timingSaves.delete(draftVersion)}
+}
 
 /* ═══ Modals ═══ */
 function openModal(id){$(id).classList.add('open')}
@@ -1489,18 +1643,42 @@ function openSettingsModal(){showDBStatus();openModal('settingsModal')}
 
 /* ═══ DB Cleanup ═══ */
 async function cleanupDB(){
-  const si=new Set(songs.map(s=>s.id));let c=0;
-  for(const k of await dbKeys('audioData')){if(!si.has(k)){await dbDel('audioData',k);c++}}
-  for(const k of await dbKeys('imageData')){if(!si.has(k)){await dbDel('imageData',k);c++}}
-  showToast(`ゴミ掃除完了: ${c}件削除`);showDBStatus();
+  try{
+    const c=await mutateLibrary(()=>new Promise((resolve,reject)=>{
+      const tx=db.transaction(['songs','audioData','imageData'],'readwrite');let count=0;
+      const songRequest=tx.objectStore('songs').getAllKeys(),audioRequest=tx.objectStore('audioData').getAllKeys(),imageRequest=tx.objectStore('imageData').getAllKeys();
+      let songKeys,audioKeys,imageKeys,ready=0;
+      const removeOrphans=()=>{
+        if(++ready<3)return;
+        const songIds=new Set(songKeys);
+        for(const key of audioKeys)if(!songIds.has(key)){tx.objectStore('audioData').delete(key);count++}
+        for(const key of imageKeys)if(!songIds.has(key)){tx.objectStore('imageData').delete(key);count++}
+      };
+      songRequest.onsuccess=()=>{songKeys=songRequest.result;removeOrphans()};
+      audioRequest.onsuccess=()=>{audioKeys=audioRequest.result;removeOrphans()};
+      imageRequest.onsuccess=()=>{imageKeys=imageRequest.result;removeOrphans()};
+      tx.oncomplete=()=>resolve(count);tx.onabort=()=>reject(tx.error||new Error('ゴミ掃除が中断されました'));
+    }));
+    showToast(`ゴミ掃除完了: ${c}件削除`);showDBStatus();
+  }catch(err){showToast('ゴミ掃除に失敗: '+err.message,4000)}
 }
 async function deleteAllSongs(){
-  if(!confirm('全曲を削除しますか？'))return;
-  audio.pause();isPlaying=false;currentSongIndex=-1;
-  $('playerBar').classList.remove('visible');$('lyricsPanel').classList.add('hidden');
-  for(const[id,url] of thumbUrls){URL.revokeObjectURL(url)}thumbUrls.clear();
-  for(const s of songs){await dbDel('songs',s.id);await dbDel('audioData',s.id).catch(()=>{});await dbDel('imageData',s.id).catch(()=>{})}
-  songs=[];renderSongList();closeModal('settingsModal');showToast('全曲を削除しました');
+  if(deletingAll||!confirm('全曲を削除しますか？'))return;
+  deletingAll=true;
+  let decideImports;
+  const decision=new Promise(resolve=>{decideImports=resolve});
+  for(const token of activeImports)token.deleteDecision=decision;
+  try{
+    await mutateLibrary(async()=>{
+      await dbWrite(['songs','audioData','imageData'],tx=>{for(const name of ['songs','audioData','imageData'])tx.objectStore(name).clear()});
+      stopPlayback();
+      for(const[,url]of thumbUrls)URL.revokeObjectURL(url);thumbUrls.clear();
+      songs=[];
+    });
+    decideImports(true);
+    renderSongList();closeModal('settingsModal');showToast('全曲を削除しました');
+  }catch(err){decideImports(false);showToast('削除に失敗: '+err.message,4000)}
+  finally{deletingAll=false}
 }
 async function showDBStatus(){
   try{
